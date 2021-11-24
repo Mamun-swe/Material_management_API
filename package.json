@@ -1,0 +1,46 @@
+{
+  "name": "material-management-app",
+  "version": "0.0.1",
+  "author": "Miguel Duarte",
+  "contributors": [
+    "Miguel Duarte <miguelduarte42@gmail.com>"
+  ],
+  "modifier": [
+    "Mizanur Islam Laskar <cicakemizan@gmail.com>"
+  ],
+  "description": "APIs for Material Management App",
+  "keywords": [
+    "REST",
+    "JWT",
+    "nodejs",
+    "MSSQL",
+    "Swagger"
+  ],
+  "license": "",
+  "main": "app",
+  "dependencies": {
+    "async": "^3.2.0",
+    "azure-storage": "^2.10.4",
+    "body-parser": "^1.19.0",
+    "cookie-parser": "^1.4.5",
+    "cors": "^2.8.5",
+    "debug": "^4.3.2",
+    "dotenv": "^8.2.0",
+    "express": "^4.17.1",
+    "google-distance-matrix": "^1.1.1",
+    "jsonwebtoken": "7.3.0",
+    "morgan": "^1.10.0",
+    "mssql": "^4.3.0",
+    "node-fetch": "^2.6.1",
+    "streamifier": "^0.1.1",
+    "swagger-tools": "^0.10.4",
+    "validator": "7.0.0",
+    "yamljs": "0.2.9"
+  },
+  "scripts": {
+    "start": "nodemon app"
+  },
+  "devDependencies": {
+    "nodemon": "^2.0.12"
+  }
+}
