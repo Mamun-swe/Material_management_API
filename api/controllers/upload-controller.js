@@ -1,96 +1,166 @@
-require("dotenv").config();
+
+const FormData = require("form-data")
+const apiSecret = process.env.API_SECRET
+const clientApiRoot = process.env.CLIENT_API_ROOT
+const auth = require("../helpers/auth")
+const messages = require("../../config/constant")
+const Validator = require("../validators/upload.validator")
+const { FileNameGenerator } = require("../helpers")
+const fs = require("fs")
+
 
 let storageAccount = process.env.AZURE_STORAGE_ACCOUNT;
 
-const 
-    fetch  = require('node-fetch')
+const
+  fetch = require('node-fetch')
   , sql = require("../../config/sql")
-  , messages = require("../../config/constant")
   , streamifier = require('streamifier')
   , containerName = 'supplementarydocs'
   , azureStorage = require('azure-storage')
   , blobService = azureStorage.createBlobService();
 
 const getBlobName = originalName => {
-    const identifier = Math.random().toString().replace(/0\./, ''); // remove "0." from start of string
-    return `${identifier}-${originalName}`;
-};  
+  const identifier = Math.random().toString().replace(/0\./, ''); // remove "0." from start of string
+  return `${identifier}-${originalName}`;
+};
+
+// Upload supplementary document
+exports.uploadSupplementaryDoc = async (req, res, next) => {
+  try {
+
+    const file = req.files
+    // const token = req.headers.authorization
+    // const token = ""
+
+    // const header = { headers: { 
+    //   Authorization: "Bearer " + localStorage.getItem("token") } }
 
 
-exports.uploadSupplementaryDoc = function(args, res, next) {
-  
+    const url = clientApiRoot + '/FileUpload/'
+
+    // if (!token) return res.status(404).json({ message: messages.TOKEN_IS_EMPTY })
+    // const splitToken = await header.headers.authorization.split(' ')[1]
+
+    // check valid token
+    // const validToken = await auth.isVerifiedToken(splitToken, apiSecret)
+    // if (!validToken) {
+    //   return res.status(501).json({
+    //     message: messages.INVALID_TOKEN
+    //   })
+    // }
+
+    // check validity
+    // const validate = await Validator.Upload(file)
+    // if (!validate.isValid) {
+    //   return res.status(422).json(validate.error)
+    // }
+
+    // const customFolderName = "supplementary-doc"
+    // const fileToUpload = file.supplementary_file[0]
+    // const fileName = await FileNameGenerator(fileToUpload.originalname)
+
     const
-          blobName = getBlobName(args.files['supplementary_file'][0].originalname)
-        , fileBuffer = args.files['supplementary_file'][0].buffer
-        , stream = streamifier.createReadStream(new Buffer(fileBuffer))
-        , streamLength = args.files['supplementary_file'][0].buffer.length;
+      blobName = getBlobName(req.files['supplementary_file'][0].originalname)
+      , fileBuffer = req.files['supplementary_file'][0].buffer
+      , stream = streamifier.createReadStream(new Buffer(fileBuffer))
+    //   , streamLength = req.files['supplementary_file'][0].buffer.length;
 
-    var options = {
-      contentSettings:{contentType: args.files['supplementary_file'][0].mimetype}
-    };
+    // console.log(req.files['supplementary_file'][0]);
 
-    blobService.createBlockBlobFromStream(containerName, blobName, stream, streamLength, options, (uploadError, uploadResult)=>{
+    const formData = new FormData()
+    formData.append("customFolderName", "static")
+    formData.append("fileName", "xdfgd")
+    formData.append("supplementary_file", req.files['supplementary_file'][0].buffer)
 
-      if (!uploadError) {
+    const response = await fetch(url, {
+      method: 'POST',
+      body: formData,
+      headers: req.headers
+    })
 
-          //console.log("Image upload successful", uploadResult);
 
-          let response = {
-              status: true,
-              message: "Document Uploaded Successfully",
-              //document_path: "https://" + storageAccount + ".blob.core.windows.net/" + containerName + "/" + blobName,
-              file_name: blobName
-          };
-      
-          res.writeHead(200, { "Content-Type": "application/json" });
-          return res.end(JSON.stringify(response));  
-  
-      } else{
-  
-          //throw uploadError;
-          console.log(uploadError);
+    console.log(response)
 
-          let response = {
-              status: false,
-              message: messages.SOME_THING_WENT_WRONG,
-              details: uploadError
-          };
-          res.writeHead(500, { "Content-Type": "application/json" });
-          return res.end(JSON.stringify(response));
-      }
-    });
-  };
+  } catch (error) {
+    if (error) {
+      console.log(error)
+      next(error)
+    }
+  }
 
-  exports.deleteSupplementaryDoc = function(args, res, next) {
+  // const
+  //   blobName = getBlobName(args.files['supplementary_file'][0].originalname)
+  //   , fileBuffer = args.files['supplementary_file'][0].buffer
+  //   , stream = streamifier.createReadStream(new Buffer(fileBuffer))
+  //   , streamLength = args.files['supplementary_file'][0].buffer.length;
 
-    let blobName =  args.body.supplementary_document;
+  // var options = {
+  //   contentSettings: { contentType: args.files['supplementary_file'][0].mimetype }
+  // }
 
-    blobService.deleteBlobIfExists(containerName, blobName, (deleteError, deleteResult) => {
+  // blobService.createBlockBlobFromStream(containerName, blobName, stream, streamLength, options, (uploadError, uploadResult) => {
 
-      if (!deleteError) {
+  //   if (!uploadError) {
 
-          console.log("Delete successful", deleteResult);
+  //     //console.log("Image upload successful", uploadResult);
 
-          let response = {
-            status: true,
-            message: "Supplementary Document Deleted Successfully"
-          };
-      
-          res.writeHead(200, { "Content-Type": "application/json" });
-          return res.end(JSON.stringify(response));  
-  
-      } else{
-  
-        //throw deleteError;
-        console.log(deleteError);
+  //     let response = {
+  //       status: true,
+  //       message: "Document Uploaded Successfully",
+  //       //document_path: "https://" + storageAccount + ".blob.core.windows.net/" + containerName + "/" + blobName,
+  //       file_name: blobName
+  //     };
 
-        let response = {
-          status: false,
-          message: messages.SOME_THING_WENT_WRONG,
-          details: deleteError
-        };
-        res.writeHead(500, { "Content-Type": "application/json" });
-        return res.end(JSON.stringify(response));
-      }
-    }); 
+  //     res.writeHead(200, { "Content-Type": "application/json" });
+  //     return res.end(JSON.stringify(response));
+
+  //   } else {
+
+  //     //throw uploadError;
+  //     console.log(uploadError);
+
+  //     let response = {
+  //       status: false,
+  //       message: messages.SOME_THING_WENT_WRONG,
+  //       details: uploadError
+  //     };
+  //     res.writeHead(500, { "Content-Type": "application/json" });
+  //     return res.end(JSON.stringify(response));
+  //   }
+  // });
+}
+
+// Delete supplementary document
+exports.deleteSupplementaryDoc = function (args, res, next) {
+
+  let blobName = args.body.supplementary_document;
+
+  blobService.deleteBlobIfExists(containerName, blobName, (deleteError, deleteResult) => {
+
+    if (!deleteError) {
+
+      console.log("Delete successful", deleteResult);
+
+      let response = {
+        status: true,
+        message: "Supplementary Document Deleted Successfully"
+      };
+
+      res.writeHead(200, { "Content-Type": "application/json" });
+      return res.end(JSON.stringify(response));
+
+    } else {
+
+      //throw deleteError;
+      console.log(deleteError);
+
+      let response = {
+        status: false,
+        message: messages.SOME_THING_WENT_WRONG,
+        details: deleteError
+      };
+      res.writeHead(500, { "Content-Type": "application/json" });
+      return res.end(JSON.stringify(response));
+    }
+  });
 };

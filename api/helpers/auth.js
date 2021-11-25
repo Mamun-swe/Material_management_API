@@ -1,19 +1,14 @@
-"use strict";
-
-require("dotenv").config();
-const mssql = require('mssql');
-const sqlConnect = require("../../config/sql");
-
-var jwt = require("jsonwebtoken");
-
-var apiSecret = process.env.API_SECRET;
-var issuer = process.env.API_ROOT;
+"use strict"
+const sqlConnect = require("../../config/sql")
+const jwt = require("jsonwebtoken")
+const apiSecret = process.env.API_SECRET
+var issuer = process.env.API_ROOT
 
 //Here we setup the security checks for the endpoints
 //that need it (in our case, only /protected). This
 //function will be called every time a request to a protected
 //endpoint is received
-exports.verifyToken = function(req, authOrSecDef, token, callback) {
+exports.verifyToken = function (req, authOrSecDef, token, callback) {
   //these are the scopes/roles defined for the current endpoint
   var currentScopes = req.swagger.operation["x-security-scopes"];
 
@@ -26,11 +21,11 @@ exports.verifyToken = function(req, authOrSecDef, token, callback) {
   if (token && token.indexOf("Bearer ") == 0) {
     var tokenString = token.split(" ")[1];
 
-    sqlConnect("SELECT id, created_at FROM AccessToken WHERE token=@accessToken", {accessToken: tokenString}).then(result => {
+    sqlConnect("SELECT id, created_at FROM AccessToken WHERE token=@accessToken", { accessToken: tokenString }).then(result => {
 
       if (result.length > 0) {
-  
-        jwt.verify(tokenString, apiSecret, function(
+
+        jwt.verify(tokenString, apiSecret, function (
           verificationError,
           decodedToken
         ) {
@@ -45,11 +40,11 @@ exports.verifyToken = function(req, authOrSecDef, token, callback) {
             var roleMatch = currentScopes.indexOf(decodedToken.role) !== -1;
             // check if the issuer matches
             var issuerMatch = decodedToken.iss == issuer;
-    
+
             // you can add more verification checks for the
             // token here if necessary, such as checking if
             // the useremail belongs to an active user
-    
+
             if (roleMatch && issuerMatch) {
               //add the token to the request so that we
               //can access it in the endpoint code if necessary
@@ -64,9 +59,9 @@ exports.verifyToken = function(req, authOrSecDef, token, callback) {
 
             try {
               sqlConnect(
-                "DELETE FROM AccessToken WHERE token=@accessToken", {accessToken: tokenString}).then(delResult => {
-                  console.log('Invalid Token Deleted From DB');        
-              });
+                "DELETE FROM AccessToken WHERE token=@accessToken", { accessToken: tokenString }).then(delResult => {
+                  console.log('Invalid Token Deleted From DB');
+                });
             } catch (delError) {
               console.error("SQL DELETION ERROR:", JSON.stringify(delError, null, 2));
             }
@@ -74,21 +69,21 @@ exports.verifyToken = function(req, authOrSecDef, token, callback) {
             return callback(sendError());
           }
         });
-  
+
       } else {
-  
+
         return callback(sendError());
       }
-        
+
     });
-    
+
   } else {
     //return the error in the callback if the Authorization header doesn't have the correct format
     return callback(sendError());
   }
 };
 
-exports.issueToken = function(useremail, role) {
+exports.issueToken = function (useremail, role) {
   const token = jwt.sign(
     {
       sub: useremail,
@@ -96,19 +91,18 @@ exports.issueToken = function(useremail, role) {
       role: role
     },
     apiSecret,
-    {
-      expiresIn: 3600 * process.env.TOKEN_EXPIRATION_HOUR
-    }
-  );
-
-  try {
-    sqlConnect(
-      "INSERT INTO AccessToken (token) VALUES (@accessToken)", {accessToken: token}).then(result => {
-        console.log('Token Inserted into DB');        
-    });
-  } catch (sqlError) {
-    console.error("SQL INSERTION ERROR:", JSON.stringify(sqlError, null, 2));
-  }  
+    { expiresIn: 3600 * process.env.TOKEN_EXPIRATION_HOUR }
+  )
 
   return token;
 };
+
+
+// token verification
+exports.isVerifiedToken = async (token, secrect) => {
+  try {
+    return await jwt.verify(token, secrect)
+  } catch (error) {
+    if (error) return false
+  }
+}

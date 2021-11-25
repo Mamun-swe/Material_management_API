@@ -59,27 +59,27 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
-  /logout:
-    x-swagger-router-controller: main-controller
-    post:
-      tags:
-      - User Authentication
-      operationId: logoutPost
-      summary: "Logout from the session"
-      description: "Logout will destroy your access token"
-      security:
-        - Bearer: []
-      x-security-scopes:
-        - admin
-      responses:
-        "200":
-          description: "Success"
-          schema:
-            $ref: "#/definitions/Resource"
-        "404":
-          description: "Access Denied"
-          schema:
-            $ref: "#/definitions/Error"
+  # /logout:
+  #   x-swagger-router-controller: main-controller
+  #   post:
+  #     tags:
+  #     - User Authentication
+  #     operationId: logoutPost
+  #     summary: "Logout from the session"
+  #     description: "Logout will destroy your access token"
+  #     security:
+  #       - Bearer: []
+  #     x-security-scopes:
+  #       - admin
+  #     responses:
+  #       "200":
+  #         description: "Success"
+  #         schema:
+  #           $ref: "#/definitions/Resource"
+  #       "404":
+  #         description: "Access Denied"
+  #         schema:
+  #           $ref: "#/definitions/Error"
 
   /appUser/{user_id}:
     x-swagger-router-controller: main-controller
@@ -89,8 +89,8 @@ paths:
       operationId: appUser
       summary: "Get App User Involvements"
       description: "Fetch app-user associated with the authorized user"
-      security:
-        - Bearer: []
+      # security:
+      #   - Bearer: []
       x-security-scopes:
         - admin
       parameters:
@@ -121,8 +121,8 @@ paths:
         - multipart/form-data      
       summary: "Upload a Supplementary Document"
       description: "Upload the supplementary document before crraeting backfill/disposal requests"
-      security:
-        - Bearer: []
+      # security:
+      #   - Bearer: []
       x-security-scopes:
         - admin
       parameters:
@@ -178,8 +178,8 @@ paths:
       operationId: projectByDepartment
       summary: "List all projects by a given depertment key"
       description: "Get details of all projects by a selected department"
-      security:
-        - Bearer: []
+      # security:
+      #   - Bearer: []
       x-security-scopes:
         - admin
       parameters:
