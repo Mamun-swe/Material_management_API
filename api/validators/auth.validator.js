@@ -1,15 +1,10 @@
 
-const { isEmail } = require("./helpers.validator")
 
 const Login = data => {
     let error = {}
 
-    if (!data.email) error.email = "Email is required"
-    if (data.email) {
-        if (!isEmail(data.email)) error.email = "Address isn't valid"
-    }
-
-    if (!data.password) error.password = "Password is required"
+    if (!data.uid) error.uid = "uid is required"
+    if (!data.pwd) error.pwd = "Password is required"
 
     return {
         error,

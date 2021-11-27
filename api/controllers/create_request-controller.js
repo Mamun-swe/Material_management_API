@@ -1,4 +1,3 @@
-require("dotenv").config();
 
 const sql = require("../../config/sql")
     , messages = require("../../config/constant")

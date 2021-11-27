@@ -99,10 +99,30 @@ exports.issueToken = function (useremail, role) {
 
 
 // token verification
-exports.isVerifiedToken = async (token, secrect) => {
+exports.isValidToken = async (header) => {
+  return {
+    headers: { Authorization: header.authorization }
+  }
+
   try {
-    return await jwt.verify(token, secrect)
+    let authorizedHeader
+
+    if (header && header.authorization) {
+      const splitToken = await header.authorization.split(' ')[1]
+      const isAuthorized = await jwt.verify(splitToken, process.env.API_SECRET)
+
+      if (isAuthorized) {
+        authorizedHeader = {
+          headers: { Authorization: header.authorization }
+        }
+      }
+    }
+
+    return authorizedHeader
   } catch (error) {
-    if (error) return false
+    if (error) {
+      // console.log(error)
+      return false
+    }
   }
 }

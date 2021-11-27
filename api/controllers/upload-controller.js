@@ -28,6 +28,7 @@ const getBlobName = originalName => {
 exports.uploadSupplementaryDoc = async (req, res, next) => {
   try {
 
+    console.log("hello");
     const file = req.files
     // const token = req.headers.authorization
     // const token = ""
@@ -36,7 +37,7 @@ exports.uploadSupplementaryDoc = async (req, res, next) => {
     //   Authorization: "Bearer " + localStorage.getItem("token") } }
 
 
-    const url = clientApiRoot + '/FileUpload/'
+    const url = clientApiRoot + '/FileUpload'
 
     // if (!token) return res.status(404).json({ message: messages.TOKEN_IS_EMPTY })
     // const splitToken = await header.headers.authorization.split(' ')[1]
@@ -82,9 +83,11 @@ exports.uploadSupplementaryDoc = async (req, res, next) => {
     console.log(response)
 
   } catch (error) {
+    console.log("Hello error")
     if (error) {
+      res.send(error)
       console.log(error)
-      next(error)
+      // next(error)
     }
   }
 
