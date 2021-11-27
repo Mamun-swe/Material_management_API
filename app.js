@@ -4,6 +4,7 @@ let app = require("express")()
 let swaggerTools = require("swagger-tools")
 let YAML = require("yamljs")
 const cors = require('cors')
+const bodyParser = require("body-parser")
 const fileUpload = require("express-fileupload")
 let auth = require("./api/helpers/auth")
 let swaggerConfig = YAML.load("./api/swagger/swagger.yaml")
@@ -11,6 +12,13 @@ let swaggerConfig = YAML.load("./api/swagger/swagger.yaml")
 
 /* CONFIGURATIONS */
 swaggerTools.initializeMiddleware(swaggerConfig, function (middleware) {
+
+  app.use(
+    bodyParser.urlencoded({
+      extended: true
+    })
+  )
+
   //Serves the Swagger UI on /docs
   app.use(middleware.swaggerMetadata()); // needs to go BEFORE swaggerSecurity
 

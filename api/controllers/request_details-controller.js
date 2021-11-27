@@ -2,17 +2,8 @@
 const axios = require("axios")
 const auth = require("../helpers/auth")
 const sql = require("../../config/sql")
-  , messages = require("../../config/constant")
-  , clientApiRoot = process.env.CLIENT_API_ROOT
-  , async = require('async')
-  , fetch = require('node-fetch')
-  , storageAccount = process.env.AZURE_STORAGE_ACCOUNT
-  , containerName = 'supplementarydocs'
-  ;
-
-
-
-
+const messages = require("../../config/constant")
+const clientApiRoot = process.env.CLIENT_API_ROOT
 
 /* Get Request Details */
 exports.requestDetails = async (req, res, next) => {
@@ -43,43 +34,31 @@ exports.requestDetails = async (req, res, next) => {
       const requestInfoData = await _getRequestInfo(isGlobalRequest, userId, requestId)
       const projectInfoData = await _getProjectInfo(requestInfoData.department_key, verifiedHeader)
       const contactInfoData = await _getContactInfo(requestId)
-      const projectTeamData = await _getProjectTeam(requestId)
-
-      // const asyncRequest = await async.waterfall([
-      //   _getRequestInfo(isGlobalRequest, userId, requestId)
-      //   _getProjectInfo,
-      //   _getContactInfo,
-      //   _getProjectTeam,
-      //   _getSupplementaryDocuments
-      // ])
-
-      // if (!requestInfo) {
-      //   return res.status(500).json({
-      //     status: false,
-      //     message: messages.SOME_THING_WENT_WRONG,
-      //     details: err
-      //   })
-      // }
+      const projectTeamData = await _getProjectTeam(requestId, verifiedHeader)
+      const documentsData = await _getSupplementaryDocuments(requestId)
 
       const data = {
         request_info: requestInfoData || null,
         project_info: projectInfoData,
-        contact_info: contactInfoData
+        contact_info: contactInfoData,
+        project_team: projectTeamData,
+        supplementary_documents: documentsData
       }
-
 
       return res.status(200).json(data)
     } else {
+      const requestInfoData = await _getRequestInfo(isGlobalRequest, userId, requestId)
+      const projectInfoData = await _getProjectInfo(requestInfoData.department_key, verifiedHeader)
 
+      const data = {
+        request_info: requestInfoData || null,
+        project_info: projectInfoData
+      }
 
-      return res.status(200).json("fsdfsf")
+      return res.status(200).json(data)
     }
-
-
-
   } catch (error) {
     if (error) {
-      console.log(error);
       res.status(500).json({
         message: messages.SOME_THING_WENT_WRONG,
         details: error
@@ -87,8 +66,6 @@ exports.requestDetails = async (req, res, next) => {
     }
   }
 }
-
-
 
 // Get Some Basic Data of the Request
 const _getRequestInfo = async (isGlobalRequest, userId, requestId) => {
@@ -178,210 +155,52 @@ const _getContactInfo = async (requestId) => {
 } //end _getContactInfo
 
 
-
-
-
-
-
-
-
-
-// let
-// userId = args.swagger.params.user_id.value
-// , requestId = args.swagger.params.request_id.value
-// , isGlobalRequest = true
-// ;
-
-// try {
-// sql(
-//   "SELECT * FROM requesting_users WHERE user_id = @userId AND request_id = @requestId", { userId: userId, requestId: requestId }).then(checkResult => {
-
-//     if (checkResult.length > 0) { // user-created request
-
-//       isGlobalRequest = false;
-
-//       async.waterfall([
-//         _getRequestInfo(isGlobalRequest, userId, requestId),
-//         _getProjectInfo,
-//         _getContactInfo,
-//         _getProjectTeam,
-//         _getSupplementaryDocuments
-//       ],
-//         function (err, result) {
-
-//           if (err) {
-
-//             console.log("ERROR IN FETCHING REQUEST DETAILS: ", JSON.stringify(err, null, 2));
-
-//             res.writeHead(500, { "Content-Type": "application/json" });
-//             return res.end(JSON.stringify({
-//               status: false,
-//               message: messages.SOME_THING_WENT_WRONG,
-//               details: err
-//             }));
-
-//           } //end if
-
-//           console.log("REQUEST DETAILS: ", JSON.stringify(result, null, 2));
-
-//           res.writeHead(200, { "Content-Type": "application/json" });
-//           return res.end(JSON.stringify(result));
-
-//         });
-
-//     } else { // global request
-
-//       async.waterfall([
-//         _getRequestInfo(isGlobalRequest, userId, requestId),
-//         _getProjectInfo
-//       ],
-//         function (err, result) {
-
-//           if (err) {
-
-//             console.log("ERROR IN FETCHING REQUEST DETAILS: ", JSON.stringify(err, null, 2));
-
-//             res.writeHead(500, { "Content-Type": "application/json" });
-//             return res.end(JSON.stringify({
-//               status: false,
-//               message: messages.SOME_THING_WENT_WRONG,
-//               details: err
-//             }));
-
-//           } //end if
-
-//           console.log("REQUEST DETAILS: ", JSON.stringify(result, null, 2));
-
-//           res.writeHead(200, { "Content-Type": "application/json" });
-//           return res.end(JSON.stringify(result));
-
-//         });
-
-//     } //end main else
-
-//   });
-// } catch (checkError) {
-
-// console.log("CHECK ERROR:");
-// console.log(checkError);
-
-// res.writeHead(500, { "Content-Type": "application/json" });
-// return res.end(JSON.stringify({
-//   status: false,
-//   message: messages.SOME_THING_WENT_WRONG,
-//   details: checkError
-// }));
-
-// }
-
-
-
-
-
-
-
-
-
-
-// /**
-// * Get Project Team
-// * 
-// * @param {string} userId
-// * @param {integer} requestId
-// * @param {string} departmentKey
-// * @param {object} requestDetailsObj
-// * @param {object} callback
-// * 
-// * @return {object}  
-// */
-// function _getProjectTeam(userId, requestId, departmentKey, requestDetailsObj, callback) {
-
-// console.log("_getProjectTeam");
-
-// let url = clientApiRoot + '/ProjectStaff/' + departmentKey;
-
-// const getData = async url => {
-
-//   try {
-
-//     const
-//       response = await fetch(url)
-//       , staffs = await response.json()
-//       ;
-
-//     requestDetailsObj["project_team"] = [];
-
-//     let n = staffs.length;
-
-//     for (var i = 0; i < n; i++) {
-
-//       requestDetailsObj["project_team"].push({
-//         "name": staffs[i]['first_name'] + ' ' + staffs[i]['last_name'],
-//         "position": staffs[i]['post_name']
-//       });
-//     }
-
-//     //console.log("PROJECT INFO:", JSON.stringify(requestDetailsObj["project_info"], null, 2));
-//     console.log("REQUEST OBJ:", JSON.stringify(requestDetailsObj, null, 2));
-
-//     callback(null, userId, requestId, requestDetailsObj);
-
-
-//   } catch (staffError) {
-
-//     console.log("Error in Fetching Project Staff:");
-//     console.error(staffError);
-//     callback(staffError);
-
-//   }
-
-// }; //end getData
-
-// getData(url);
-
-// } //end _getProjectTeam
-
-
-// /**
-// * Get Supplementary Documents
-// * 
-// * @param {string} userId
-// * @param {integer} requestId
-// * @param {object} requestDetailsObj
-// * @param {object} callback
-// * 
-// * @return {object}  
-// */
-// function _getSupplementaryDocuments(userId, requestId, requestDetailsObj, callback) {
-
-// console.log("_getSupplementaryDocuments");
-
-// let docSql = "SELECT S.name AS name, S.supplementary_document AS supplementary_document FROM requests AS R INNER JOIN supplementaries AS S ON ( S.request_id = R.id) WHERE R.id = @requestId";
-
-// try {
-//   sql(docSql, { requestId: requestId }).then(docResult => {
-
-//     requestDetailsObj["supplementary_documents"] = [];
-
-//     for (var i = 0; i < docResult.length; i++) {
-
-//       requestDetailsObj["supplementary_documents"].push({
-//         "name": docResult[i]['name'],
-//         "document_path": "https://" + storageAccount + ".blob.core.windows.net/" + containerName + "/" + docResult[i]['supplementary_document']
-//       });
-
-//     }
-
-//     console.log("REQUEST OBJ:", JSON.stringify(requestDetailsObj, null, 2));
-
-//     callback(null, requestDetailsObj);
-
-//   });
-// } catch (docSqlError) {
-
-//   console.log("DOC SQL ERROR:", JSON.stringify(docSqlError, null, 2));
-//   callback(docSqlError);
-
-// }
-
-// } //end _getSupplementaryDocuments
+// Get Project Team
+const _getProjectTeam = async (departmentKey, verifiedHeader) => {
+  try {
+    const items = []
+    const url = `${clientApiRoot}/ProjectStaff/${departmentKey}`
+
+    const response = await axios.get(url, verifiedHeader)
+    if (response && response.status === 200) {
+      if (response.data && response.data.length) {
+        for (let i = 0; i < response.data.length; i++) {
+          const element = response.data[i]
+          items.push({
+            name: element.first_name + ' ' + element.last_name,
+            position: element.post_name
+          })
+        }
+      }
+    }
+
+    return items
+  } catch (error) {
+    if (error) return error
+  }
+} //end _getProjectTeam
+
+
+// Get Supplementary Documents
+const _getSupplementaryDocuments = async (requestId) => {
+  try {
+    const items = []
+    const sqlQuery = "SELECT S.name AS name, S.supplementary_document AS supplementary_document FROM requests AS R INNER JOIN supplementaries AS S ON ( S.request_id = R.id) WHERE R.id = @requestId"
+
+    const results = await sql(sqlQuery, { requestId: requestId })
+    if (results && results.length) {
+      for (let i = 0; i < results.length; i++) {
+        const element = results[i]
+        items.push({
+          name: element.name,
+          document_path: element.supplementary_document
+          // "document_path": "https://" + storageAccount + ".blob.core.windows.net/" + containerName + "/" + docResult[i]['supplementary_document']
+        })
+      }
+    }
+
+    return items
+  } catch (error) {
+    if (error) return error
+  }
+} //end _getSupplementaryDocuments

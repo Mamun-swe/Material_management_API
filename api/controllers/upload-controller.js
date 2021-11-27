@@ -1,5 +1,6 @@
 
 const FormData = require("form-data")
+const axios = require("axios")
 const apiSecret = process.env.API_SECRET
 const clientApiRoot = process.env.CLIENT_API_ROOT
 const auth = require("../helpers/auth")
@@ -7,7 +8,6 @@ const messages = require("../../config/constant")
 const Validator = require("../validators/upload.validator")
 const { FileNameGenerator } = require("../helpers")
 const fs = require("fs")
-
 
 let storageAccount = process.env.AZURE_STORAGE_ACCOUNT;
 
@@ -27,60 +27,53 @@ const getBlobName = originalName => {
 // Upload supplementary document
 exports.uploadSupplementaryDoc = async (req, res, next) => {
   try {
-
-    console.log("hello");
     const file = req.files
-    // const token = req.headers.authorization
-    // const token = ""
+    const url = `${clientApiRoot}/FileUpload'`
 
-    // const header = { headers: { 
-    //   Authorization: "Bearer " + localStorage.getItem("token") } }
+    if (!req.headers.authorization) {
+      return res.status(404).json({
+        message: messages.TOKEN_IS_EMPTY
+      })
+    }
 
-
-    const url = clientApiRoot + '/FileUpload'
-
-    // if (!token) return res.status(404).json({ message: messages.TOKEN_IS_EMPTY })
-    // const splitToken = await header.headers.authorization.split(' ')[1]
-
-    // check valid token
-    // const validToken = await auth.isVerifiedToken(splitToken, apiSecret)
-    // if (!validToken) {
-    //   return res.status(501).json({
-    //     message: messages.INVALID_TOKEN
-    //   })
-    // }
+    const verifiedHeader = await auth.isValidToken(req.headers)
+    if (!verifiedHeader) {
+      return res.status(501).json({
+        message: messages.INVALID_TOKEN
+      })
+    }
 
     // check validity
-    // const validate = await Validator.Upload(file)
-    // if (!validate.isValid) {
-    //   return res.status(422).json(validate.error)
-    // }
+    const validate = await Validator.Upload(file)
+    if (!validate.isValid) {
+      return res.status(422).json(validate.error)
+    }
 
-    // const customFolderName = "supplementary-doc"
-    // const fileToUpload = file.supplementary_file[0]
-    // const fileName = await FileNameGenerator(fileToUpload.originalname)
-
-    const
-      blobName = getBlobName(req.files['supplementary_file'][0].originalname)
-      , fileBuffer = req.files['supplementary_file'][0].buffer
-      , stream = streamifier.createReadStream(new Buffer(fileBuffer))
-    //   , streamLength = req.files['supplementary_file'][0].buffer.length;
-
-    // console.log(req.files['supplementary_file'][0]);
+    const customFolderName = "supplementary-doc"
+    const fileToUpload = file.supplementary_file[0]
+    const fileName = await FileNameGenerator(fileToUpload.originalname)
 
     const formData = new FormData()
-    formData.append("customFolderName", "static")
-    formData.append("fileName", "xdfgd")
-    formData.append("supplementary_file", req.files['supplementary_file'][0].buffer)
+    formData.append("customFolderName", customFolderName)
+    formData.append("fileName", fileName)
+    formData.append("supplementary_file", fileToUpload)
 
-    const response = await fetch(url, {
-      method: 'POST',
-      body: formData,
-      headers: req.headers
-    })
+
+    // console.log(formData.get("supplementary_file"));
+
+    // const response = await fetch(url, {
+    //   method: 'POST',
+    //   body: formData,
+    //   headers: req.headers
+    // })
+
+    const response = await axios.post(url, formData, verifiedHeader)
 
 
     console.log(response)
+
+    // res.send(response)
+
 
   } catch (error) {
     console.log("Hello error")
