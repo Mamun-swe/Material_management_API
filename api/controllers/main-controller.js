@@ -21,16 +21,11 @@ exports.loginPost = async (req, res, next) => {
     }
 
     const formData = { uid, pwd }
-
     const response = await axios.post(url, formData)
 
     if (response && response.status === 200) {
       return res.status(200).json(response.data)
     }
-
-
-
-
   } catch (error) {
     if (error) {
       res.status(404).json({
@@ -47,7 +42,7 @@ exports.appUser = async (req, res, next) => {
     const userId = req.swagger.params.user_id.value
     const url = `${clientApiRoot}/User/${userId}`
 
-    if (!req.headers) {
+    if (!req.headers.authorization) {
       return res.status(404).json({
         message: messages.TOKEN_IS_EMPTY
       })
@@ -67,7 +62,6 @@ exports.appUser = async (req, res, next) => {
 
   } catch (error) {
     if (error) {
-      console.log(error);
       res.status(500).json({
         message: messages.SOME_THING_WENT_WRONG,
         details: error
@@ -82,7 +76,7 @@ exports.projectByDepartment = async (req, res, next) => {
     const departmentKey = req.swagger.params.department_key.value
     const url = `${clientApiRoot}/Project/${departmentKey}`
 
-    if (!req.headers) {
+    if (!req.headers.authorization) {
       return res.status(404).json({
         message: messages.TOKEN_IS_EMPTY
       })

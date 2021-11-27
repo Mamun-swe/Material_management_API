@@ -11,7 +11,7 @@ exports.listProjects = async (req, res, next) => {
     const id = req.swagger.params.id.value
     const url = `${clientApiRoot}/projects/${id}`
 
-    if (!req.headers) {
+    if (!req.headers.authorization) {
       return res.status(404).json({
         message: messages.TOKEN_IS_EMPTY
       })
@@ -53,14 +53,13 @@ exports.listProjects = async (req, res, next) => {
   // });
 };
 
-
 /* PROJECT SAFF */
 exports.projectStaff = async (req, res, next) => {
   try {
     const department_key = req.swagger.params.department_key.value
     const url = `${clientApiRoot}/ProjectStaff/${department_key}`
 
-    if (!req.headers) {
+    if (!req.headers.authorization) {
       return res.status(404).json({
         message: messages.TOKEN_IS_EMPTY
       })
@@ -94,7 +93,7 @@ exports.allProjectByPage = async (req, res, next) => {
     const pageSize = req.swagger.params.pageSize.value
     const url = `${clientApiRoot}/PagedProjects/${currentPage}/${pageSize}`
 
-    if (!req.headers) {
+    if (!req.headers.authorization) {
       return res.status(404).json({
         message: messages.TOKEN_IS_EMPTY
       })
@@ -108,10 +107,9 @@ exports.allProjectByPage = async (req, res, next) => {
     }
 
     const response = await axios.get(url, verifiedHeader)
-    // console.log(response);
-    // if (response && response.status === 200) {
-    //   return res.status(200).json(response.data)
-    // }
+    if (response && response.status === 200) {
+      return res.status(200).json(response.data)
+    }
   } catch (error) {
     if (error) {
       console.log(error)

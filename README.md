@@ -27,3 +27,7 @@
  ``Authorization: Bearer _TOKEN_``, replacing `_TOKEN_ ` with the value you got from request #5
   
  By default, your role is defined as 'admin' to access into the protected routes.
+
+
+Set MSSQL in ubuntu 20.0
+https://docs.microsoft.com/en-us/sql/linux/quickstart-install-connect-ubuntu?view=sql-server-ver15

@@ -203,8 +203,8 @@ paths:
           schema:
             $ref: "#/definitions/Error"
 
-  # /listUserRequests/{user_id}/{request_type}:
-  /listUserRequests/{user_id}:
+  /listUserRequests/{user_id}/{request_type}:
+  # /listUserRequests/{user_id}:
     x-swagger-router-controller: list_requests-controller
     get:
       tags:
@@ -222,12 +222,12 @@ paths:
           description: "User ID"
           required: true
           type: "string"
-        # - name: "request_type"
-        #   in: "path"
-        #   description: "Request Type"
-        #   required: true
-        #   type: "string"
-        #   enum: [Disposal, Backfill]
+        - name: "request_type"
+          in: "path"
+          description: "Request Type"
+          required: true
+          type: "string"
+          enum: [Disposal, Backfill]
       responses:
         "200":
           description: "Success"
@@ -284,8 +284,8 @@ paths:
       operationId: requestDetails
       summary: "Request Details"
       description: "Get Request Details"
-      security:
-        - Bearer: []
+      # security:
+      #   - Bearer: []
       x-security-scopes:
         - admin
       parameters:
@@ -317,8 +317,8 @@ paths:
       operationId: listUserRequestsWithMatches
       summary: "List User Created Disposal/Backfill Requests with Matches"
       description: "Get User Created Disposal/Backfill Requests with Matches"
-      security:
-        - Bearer: []
+      # security:
+      #   - Bearer: []
       x-security-scopes:
         - admin
       parameters:
