@@ -9,7 +9,7 @@ const sql = require("../../config/sql")
 
 
 /* Create a Backfill/Disposal Request */
-exports.createRequest = function (args, res, next) {
+exports.createRequest = async function (args, res, next) {
 
     let inputParams = args.body;
 
@@ -248,7 +248,7 @@ exports.createRequest = function (args, res, next) {
             let
                 contactNames = inputParams.contact_names
                 , names = contactNames.split(',')
-                , contactPhones = inputParams.contact_phones
+                , contactPhones = inputParams.contact_phone
                 , phones = contactPhones.split(',')
                 , n = names.length
                 , insertData = ''

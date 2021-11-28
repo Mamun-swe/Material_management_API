@@ -142,8 +142,8 @@ exports.isMaterialMatched = (matchableRequestType, ownRequest, suggestingRequest
             }
 
             if (
-                ownRequest.hasOwnProperty('material_quality') &&
-                suggestingRequest.hasOwnProperty('material_quality') &&
+                'material_quality' in ownRequest &&
+                'material_quality' in suggestingRequest &&
                 ( ownRequest.material_type === suggestingRequest.material_type ) &&
                 ( (ownRequest.material_type !== 'Broken Concrete') && (ownRequest.material_quality === suggestingRequest.material_quality) )
             ) {
@@ -170,8 +170,8 @@ exports.isMaterialMatched = (matchableRequestType, ownRequest, suggestingRequest
             }
 
             if (
-                ownRequest.hasOwnProperty('material_quality') &&
-                suggestingRequest.hasOwnProperty('material_quality') &&
+               'material_quality' in ownRequest &&
+                'material_quality' in suggestingRequest &&
                 ( ownRequest.material_type === suggestingRequest.material_type ) &&
                 ( (ownRequest.material_type !== 'Broken Concrete') && (ownRequest.material_quality === suggestingRequest.material_quality) )
             ) {
