@@ -30,11 +30,11 @@ exports.uploadSupplementaryDoc = async (req, res, next) => {
     const file = req.files
     const url = `${clientApiRoot}/FileUpload'`
 
-    if (!req.headers.authorization) {
-      return res.status(404).json({
-        message: messages.TOKEN_IS_EMPTY
-      })
-    }
+    // if (!req.headers.authorization) {
+    //   return res.status(404).json({
+    //     message: messages.TOKEN_IS_EMPTY
+    //   })
+    // }
 
     const verifiedHeader = await auth.isValidToken(req.headers)
     if (!verifiedHeader) {
@@ -61,13 +61,13 @@ exports.uploadSupplementaryDoc = async (req, res, next) => {
 
     // console.log(formData.get("supplementary_file"));
 
-    // const response = await fetch(url, {
-    //   method: 'POST',
-    //   body: formData,
-    //   headers: req.headers
-    // })
+    const response = await fetch(url, {
+      method: 'POST',
+      body: formData,
+      headers: req.headers
+    })
 
-    const response = await axios.post(url, formData, verifiedHeader)
+    // const response = await axios.post(url, formData, verifiedHeader)
 
 
     console.log(response)
@@ -76,10 +76,9 @@ exports.uploadSupplementaryDoc = async (req, res, next) => {
 
 
   } catch (error) {
-    console.log("Hello error")
     if (error) {
-      res.send(error)
-      console.log(error)
+      console.log(error);
+      // console.log("SQL ERROR:", JSON.stringify(error, null, 2));
       // next(error)
     }
   }

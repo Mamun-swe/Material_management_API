@@ -1,67 +1,88 @@
-require("dotenv").config();
 
+const async = require('async')
+const fetch = require("node-fetch")
 const sql = require("../../config/sql")
-    , messages = require("../../config/constant")
-    , clientApiRoot = process.env.CLIENT_API_ROOT
-    , async = require('async');
-const fetch = require("node-fetch");
-
+const auth = require("../helpers/auth")
+const messages = require("../../config/constant")
+const Validator = require("../validators/match.validator")
+const clientApiRoot = process.env.CLIENT_API_ROOT
 
 /* Create One/More Matches of a Request */
-exports.confirmMatches = function(args, res, next) {
+exports.confirmMatches = async (args, res, next) => {
+    if (!args.headers.authorization) {
+        return res.status(404).json({
+            message: messages.TOKEN_IS_EMPTY
+        })
+    }
+
+    // verify header
+    const verifiedHeader = await auth.isValidToken(args.headers)
+    if (!verifiedHeader) {
+        return res.status(501).json({
+            message: messages.INVALID_TOKEN
+        })
+    }
+
+    // check validity
+    const validate = await Validator.ConfirmMatch(args.body)
+    if (!validate.isValid) {
+        return res.status(422).json({
+            message: validate.error
+        })
+    }
 
     let inputParams = args.body;
 
     async.waterfall([
-      _getMatchingInfo( inputParams ),
-      _updateMatchingStatus,
-      _updateAsOtherSide,
-      _adjustMaterialVolumesForOwner,
-      _adjustMaterialVolumesForOthers,
-      _updateMatchingSummary,
-      _getContractTypes,
-      _saveCompulsoryDocuments
+        _getMatchingInfo(inputParams),
+        _updateMatchingStatus,
+        _updateAsOtherSide,
+        _adjustMaterialVolumesForOwner,
+        _adjustMaterialVolumesForOthers,
+        _updateMatchingSummary,
+        _getContractTypes,
+        _saveCompulsoryDocuments
     ],
-      function (err, ourSideConfirmedRequestIds, otherSideConfirmedRequests) {
+        function (err, ourSideConfirmedRequestIds, otherSideConfirmedRequests) {
 
-          if ( err ) {
+            if (err) {
 
-              console.log("ERROR IN MATCHING CONFIRMATION PROCESS: ", JSON.stringify(err, null, 2));
+                console.log("ERROR IN MATCHING CONFIRMATION PROCESS: ", JSON.stringify(err, null, 2));
 
-              res.writeHead(500, { "Content-Type": "application/json" });
-              return res.end(JSON.stringify({
-                  status: false,
-                  message: messages.SOME_THING_WENT_WRONG,
-                  details: err
-              }));
+                res.writeHead(500, { "Content-Type": "application/json" });
+                return res.end(JSON.stringify({
+                    status: false,
+                    message: messages.SOME_THING_WENT_WRONG,
+                    details: err
+                }));
 
-          } //end if
+            } //end if
 
-          let message = '';
+            let message = '';
 
-          if ( ourSideConfirmedRequestIds !== '' )
-              message = ourSideConfirmedRequestIds + ' confirmed successfully';
+            if (ourSideConfirmedRequestIds !== '')
+                message = ourSideConfirmedRequestIds + ' confirmed successfully';
 
-          if ( otherSideConfirmedRequests.length > 0 ) {
+            if (otherSideConfirmedRequests.length > 0) {
 
-              let otherSideConfirmedRequestIds = otherSideConfirmedRequests.join();
+                let otherSideConfirmedRequestIds = otherSideConfirmedRequests.join();
 
-              if ( message !== '' )
-                  message = message + ". " + otherSideConfirmedRequestIds + " are also confirmed.";
-              else
-                  message = otherSideConfirmedRequestIds + ' confirmed successfully.';
-          }
+                if (message !== '')
+                    message = message + ". " + otherSideConfirmedRequestIds + " are also confirmed.";
+                else
+                    message = otherSideConfirmedRequestIds + ' confirmed successfully.';
+            }
 
-          if ( message === '' )
-              message = "Nothing to confirm! Maybe no matches found.";
+            if (message === '')
+                message = "Nothing to confirm! Maybe no matches found.";
 
-          res.writeHead(200, { "Content-Type": "application/json" });
-          return res.end(JSON.stringify({
-              status: true,
-              message: message
-          }));
+            res.writeHead(200, { "Content-Type": "application/json" });
+            return res.end(JSON.stringify({
+                status: true,
+                message: message
+            }));
 
-      });
+        });
 
     /**
      * Fetch Matching Data
@@ -70,11 +91,11 @@ exports.confirmMatches = function(args, res, next) {
      * @returns {(function(*): void)|*}
      * @private
      */
-    function _getMatchingInfo( inputParams ) {
+    function _getMatchingInfo(inputParams) {
 
         console.log("STEP 1: _getMatchingInfo");
 
-        return function ( callback ) {
+        return function (callback) {
 
             let
                 ownRequestId = inputParams.own_request_id
@@ -83,14 +104,14 @@ exports.confirmMatches = function(args, res, next) {
                 , userId = inputParams.user_id;
 
             let selectStatusSql = "SELECT R1.id AS own_request_id, IIF(R1.request_type = 1, 'Donator', 'Receiver') AS own_request_type, IIF(R1.filling_purpose = 1, 'Permanent', 'Temporary') AS own_filling_purpose, R1.department_key AS own_department_key, R1.material_volume AS own_material_volume, R1.matched_volume AS own_matched_volume, R1.available_volume AS own_available_volume, " +
-                    "R2.id AS matched_request_id, IIF(R2.request_type = 1, 'Donator', 'Receiver') AS other_request_type, IIF(R2.filling_purpose = 1, 'Permanent', 'Temporary') AS other_filling_purpose, R2.department_key AS other_department_key, R2.material_volume AS other_material_volume, R2.matched_volume AS other_matched_volume, R2.available_volume AS other_available_volume, " +
-                    "M.status, M.id " +
-                    "FROM matched_results AS M " +
-                    "INNER JOIN requests AS R1 ON R1.id = M.own_request_id " +
-                    "INNER JOIN requests AS R2 ON R2.id = M.matched_request_id " +
-                    "INNER JOIN requesting_users AS U1 ON U1.request_id = M.own_request_id " +
-                    "INNER JOIN requesting_users AS U2 ON U2.request_id = M.matched_request_id " +
-                    "WHERE U1.user_id = '" + userId + "' AND U2.user_id != '" + userId + "' AND M.own_request_id = " + ownRequestId + " AND M.matched_request_id IN (" + matchedRequests + ")";
+                "R2.id AS matched_request_id, IIF(R2.request_type = 1, 'Donator', 'Receiver') AS other_request_type, IIF(R2.filling_purpose = 1, 'Permanent', 'Temporary') AS other_filling_purpose, R2.department_key AS other_department_key, R2.material_volume AS other_material_volume, R2.matched_volume AS other_matched_volume, R2.available_volume AS other_available_volume, " +
+                "M.status, M.id " +
+                "FROM matched_results AS M " +
+                "INNER JOIN requests AS R1 ON R1.id = M.own_request_id " +
+                "INNER JOIN requests AS R2 ON R2.id = M.matched_request_id " +
+                "INNER JOIN requesting_users AS U1 ON U1.request_id = M.own_request_id " +
+                "INNER JOIN requesting_users AS U2 ON U2.request_id = M.matched_request_id " +
+                "WHERE U1.user_id = '" + userId + "' AND U2.user_id != '" + userId + "' AND M.own_request_id = " + ownRequestId + " AND M.matched_request_id IN (" + matchedRequests + ")";
 
             try {
 
@@ -108,7 +129,7 @@ exports.confirmMatches = function(args, res, next) {
 
         } //end return
 
-      } //end _getMatchingInfo
+    } //end _getMatchingInfo
 
     /**
      * Update Matching Status
@@ -120,7 +141,7 @@ exports.confirmMatches = function(args, res, next) {
      * @param callback
      * @private
      */
-      function _updateMatchingStatus( userId, ownRequestId, matchedRequests, statusResult, callback ) {
+    function _updateMatchingStatus(userId, ownRequestId, matchedRequests, statusResult, callback) {
 
         console.log("STEP 2: _updateMatchingStatus");
 
@@ -130,11 +151,11 @@ exports.confirmMatches = function(args, res, next) {
             nonConfirmedRequests = [],
             n = statusResult.length;
 
-        if ( n > 0 ) {
+        if (n > 0) {
 
-            for ( let i = 0; i < n; i ++ ) {
+            for (let i = 0; i < n; i++) {
 
-                switch ( statusResult[i].status ) {
+                switch (statusResult[i].status) {
 
                     case 3: //Both confirmed
                         bothSideConfirmedRequests.push(statusResult[i].matched_request_id);
@@ -164,20 +185,20 @@ exports.confirmMatches = function(args, res, next) {
                 not_confirmed: nonConfirmedRequests
             }));*/
 
-            if ( ( ourSideConfirmedRequests.length === n ) || bothSideConfirmedRequests.length === n ) {
+            if ((ourSideConfirmedRequests.length === n) || bothSideConfirmedRequests.length === n) {
 
                 console.log('Ignoring, as nothing to confirm');
                 callback(null, userId, ownRequestId, matchedRequests, statusResult, '', []);
 
             } else {
 
-                if ( nonConfirmedRequests.length > 0 ) {
+                if (nonConfirmedRequests.length > 0) {
 
                     let nonConfirmedRequestIds = nonConfirmedRequests.join();
 
                     try {
                         //confirming our side
-                        sql("UPDATE matched_results SET status = 1 WHERE own_request_id = " + ownRequestId +" AND matched_request_id IN(" + nonConfirmedRequestIds + ")").then(updatesResult => {
+                        sql("UPDATE matched_results SET status = 1 WHERE own_request_id = " + ownRequestId + " AND matched_request_id IN(" + nonConfirmedRequestIds + ")").then(updatesResult => {
 
                             callback(null, userId, ownRequestId, matchedRequests, statusResult, nonConfirmedRequestIds, otherSideConfirmedRequests);
 
@@ -200,7 +221,7 @@ exports.confirmMatches = function(args, res, next) {
             callback(null, userId, ownRequestId, matchedRequests, statusResult, '', []);
         }
 
-      } //end _updateMatchingStatus
+    } //end _updateMatchingStatus
 
     /**
      * Update As Other Side
@@ -214,31 +235,31 @@ exports.confirmMatches = function(args, res, next) {
      * @param callback
      * @private
      */
-      function _updateAsOtherSide( userId, ownRequestId, matchedRequests, statusResult, ourSideConfirmedRequestIds, otherSideConfirmedRequests, callback ) {
+    function _updateAsOtherSide(userId, ownRequestId, matchedRequests, statusResult, ourSideConfirmedRequestIds, otherSideConfirmedRequests, callback) {
 
-          console.log("STEP 3: _updateAsOtherSide");
+        console.log("STEP 3: _updateAsOtherSide");
 
-          if ( ourSideConfirmedRequestIds !== '' ) {
+        if (ourSideConfirmedRequestIds !== '') {
 
-              try {
+            try {
 
-                  sql("UPDATE matched_results SET status = 2 WHERE matched_request_id = " + ownRequestId +" AND own_request_id IN(" + ourSideConfirmedRequestIds + ")").then(updateResult => {
+                sql("UPDATE matched_results SET status = 2 WHERE matched_request_id = " + ownRequestId + " AND own_request_id IN(" + ourSideConfirmedRequestIds + ")").then(updateResult => {
 
-                      callback(null, userId, ownRequestId, matchedRequests, statusResult, ourSideConfirmedRequestIds, otherSideConfirmedRequests);
+                    callback(null, userId, ownRequestId, matchedRequests, statusResult, ourSideConfirmedRequestIds, otherSideConfirmedRequests);
 
-                  });
+                });
 
-              } catch (updateError) {
+            } catch (updateError) {
 
-                  console.log(updateError);
-                  callback(updateError);
-              }
+                console.log(updateError);
+                callback(updateError);
+            }
 
-          } else { //nothing to confirm as other side
-              callback(null, userId, ownRequestId, matchedRequests, statusResult, ourSideConfirmedRequestIds, otherSideConfirmedRequests);
-          }
+        } else { //nothing to confirm as other side
+            callback(null, userId, ownRequestId, matchedRequests, statusResult, ourSideConfirmedRequestIds, otherSideConfirmedRequests);
+        }
 
-      } //end _updateAsOtherSide
+    } //end _updateAsOtherSide
 
     /**
      * Adjust Material Volumes for Owner Side
@@ -252,88 +273,88 @@ exports.confirmMatches = function(args, res, next) {
      * @param callback
      * @private
      */
-      function _adjustMaterialVolumesForOwner( userId, ownRequestId, matchedRequests, statusResult, ourSideConfirmedRequestIds, otherSideConfirmedRequests, callback ) {
+    function _adjustMaterialVolumesForOwner(userId, ownRequestId, matchedRequests, statusResult, ourSideConfirmedRequestIds, otherSideConfirmedRequests, callback) {
 
-          console.log("STEP 4: _adjustMaterialVolumesForOwner");
+        console.log("STEP 4: _adjustMaterialVolumesForOwner");
 
-          if ( otherSideConfirmedRequests.length > 0 ) {
+        if (otherSideConfirmedRequests.length > 0) {
 
-              let otherSideConfirmedRequestIds = otherSideConfirmedRequests.join()
-                  , allIds = ownRequestId + ',' + otherSideConfirmedRequestIds;
+            let otherSideConfirmedRequestIds = otherSideConfirmedRequests.join()
+                , allIds = ownRequestId + ',' + otherSideConfirmedRequestIds;
 
-              try {
-                  //confirming both side
-                  sql("UPDATE matched_results SET status = 3 WHERE own_request_id = " + ownRequestId +" AND matched_request_id IN(" + otherSideConfirmedRequestIds + ")").then(updateResult => {
+            try {
+                //confirming both side
+                sql("UPDATE matched_results SET status = 3 WHERE own_request_id = " + ownRequestId + " AND matched_request_id IN(" + otherSideConfirmedRequestIds + ")").then(updateResult => {
 
-                      for ( let i = 0; i < statusResult.length; i ++ ) {
+                    for (let i = 0; i < statusResult.length; i++) {
 
-                          if ( otherSideConfirmedRequests.includes(statusResult[i].matched_request_id) ) {
+                        if (otherSideConfirmedRequests.includes(statusResult[i].matched_request_id)) {
 
-                              if ( statusResult[i].other_available_volume < statusResult[i].own_available_volume ) {
+                            if (statusResult[i].other_available_volume < statusResult[i].own_available_volume) {
 
-                                  statusResult[i].own_matched_volume = statusResult[i].own_matched_volume + statusResult[i].other_available_volume;
-                                  statusResult[i].other_matched_volume = statusResult[i].other_matched_volume + statusResult[i].other_available_volume;
+                                statusResult[i].own_matched_volume = statusResult[i].own_matched_volume + statusResult[i].other_available_volume;
+                                statusResult[i].other_matched_volume = statusResult[i].other_matched_volume + statusResult[i].other_available_volume;
 
-                              } else {
+                            } else {
 
-                                  statusResult[i].own_matched_volume = statusResult[i].own_matched_volume + statusResult[i].own_available_volume;
-                                  statusResult[i].other_matched_volume = statusResult[i].other_matched_volume + statusResult[i].own_available_volume;
+                                statusResult[i].own_matched_volume = statusResult[i].own_matched_volume + statusResult[i].own_available_volume;
+                                statusResult[i].other_matched_volume = statusResult[i].other_matched_volume + statusResult[i].own_available_volume;
 
-                              } //end else
+                            } //end else
 
-                              statusResult[i].own_available_volume = statusResult[i].own_material_volume - statusResult[i].own_matched_volume;
-                              statusResult[i].other_available_volume = statusResult[i].other_material_volume - statusResult[i].other_matched_volume;
+                            statusResult[i].own_available_volume = statusResult[i].own_material_volume - statusResult[i].own_matched_volume;
+                            statusResult[i].other_available_volume = statusResult[i].other_material_volume - statusResult[i].other_matched_volume;
 
-                          } //end if
+                        } //end if
 
-                      } //end for
+                    } //end for
 
-                      let matchedVolumeCaseString = "(CASE WHEN id = " + ownRequestId + " THEN " + statusResult[statusResult.length-1].own_matched_volume + " "
-                          , availableVolumeCaseString = "(CASE WHEN id = " + ownRequestId + " THEN " + statusResult[statusResult.length-1].own_available_volume + " ";
+                    let matchedVolumeCaseString = "(CASE WHEN id = " + ownRequestId + " THEN " + statusResult[statusResult.length - 1].own_matched_volume + " "
+                        , availableVolumeCaseString = "(CASE WHEN id = " + ownRequestId + " THEN " + statusResult[statusResult.length - 1].own_available_volume + " ";
 
-                      for ( let i = 0; i < statusResult.length; i ++ ) {
+                    for (let i = 0; i < statusResult.length; i++) {
 
-                          matchedVolumeCaseString = matchedVolumeCaseString + "WHEN id = " + statusResult[i].matched_request_id + " THEN " + statusResult[i].other_matched_volume + " ";
-                          availableVolumeCaseString = availableVolumeCaseString + "WHEN id = " + statusResult[i].matched_request_id + " THEN " + statusResult[i].other_available_volume + " ";
+                        matchedVolumeCaseString = matchedVolumeCaseString + "WHEN id = " + statusResult[i].matched_request_id + " THEN " + statusResult[i].other_matched_volume + " ";
+                        availableVolumeCaseString = availableVolumeCaseString + "WHEN id = " + statusResult[i].matched_request_id + " THEN " + statusResult[i].other_available_volume + " ";
 
-                          if ( i === statusResult.length - 1 ) {
+                        if (i === statusResult.length - 1) {
 
-                              matchedVolumeCaseString = matchedVolumeCaseString + "END)";
-                              availableVolumeCaseString = availableVolumeCaseString + "END)";
-                          }
+                            matchedVolumeCaseString = matchedVolumeCaseString + "END)";
+                            availableVolumeCaseString = availableVolumeCaseString + "END)";
+                        }
 
-                      } //end for
+                    } //end for
 
-                      let updateSqlWithNewVolumes = "UPDATE requests SET matched_volume = " + matchedVolumeCaseString + ", available_volume = " + availableVolumeCaseString + " WHERE id IN(" + allIds + ")";
+                    let updateSqlWithNewVolumes = "UPDATE requests SET matched_volume = " + matchedVolumeCaseString + ", available_volume = " + availableVolumeCaseString + " WHERE id IN(" + allIds + ")";
 
-                      try {
+                    try {
 
-                          sql(updateSqlWithNewVolumes).then(updateSqlWithNewVolumes => {
+                        sql(updateSqlWithNewVolumes).then(updateSqlWithNewVolumes => {
 
-                              callback(null, userId, ownRequestId, matchedRequests, statusResult, ourSideConfirmedRequestIds, otherSideConfirmedRequests);
+                            callback(null, userId, ownRequestId, matchedRequests, statusResult, ourSideConfirmedRequestIds, otherSideConfirmedRequests);
 
-                          });
+                        });
 
-                      } catch (updateSqlWithNewVolumesError) {
+                    } catch (updateSqlWithNewVolumesError) {
 
-                          console.log(updateSqlWithNewVolumesError);
-                          callback(updateSqlWithNewVolumesError);
-                      }
+                        console.log(updateSqlWithNewVolumesError);
+                        callback(updateSqlWithNewVolumesError);
+                    }
 
-                  });
+                });
 
-              } catch (updateError) {
+            } catch (updateError) {
 
-                  console.log(updateError);
-                  callback(updateError);
-              }
+                console.log(updateError);
+                callback(updateError);
+            }
 
-          } else { //nothing to adjust, as no matches found with the status 'Other Side confirmed'
+        } else { //nothing to adjust, as no matches found with the status 'Other Side confirmed'
 
-              callback(null, userId, ownRequestId, matchedRequests, statusResult, ourSideConfirmedRequestIds, []);
-          }
+            callback(null, userId, ownRequestId, matchedRequests, statusResult, ourSideConfirmedRequestIds, []);
+        }
 
-      } //end _adjustMaterialVolumesForOwner
+    } //end _adjustMaterialVolumesForOwner
 
     /**
      * Adjust Material Volumes for Other Sides
@@ -347,11 +368,11 @@ exports.confirmMatches = function(args, res, next) {
      * @param callback
      * @private
      */
-    function _adjustMaterialVolumesForOthers( userId, ownRequestId, matchedRequests, statusResult, ourSideConfirmedRequestIds, otherSideConfirmedRequests, callback ) {
+    function _adjustMaterialVolumesForOthers(userId, ownRequestId, matchedRequests, statusResult, ourSideConfirmedRequestIds, otherSideConfirmedRequests, callback) {
 
         console.log("STEP 5: _adjustMaterialVolumesForOthers");
 
-        if ( otherSideConfirmedRequests.length > 0 ) {
+        if (otherSideConfirmedRequests.length > 0) {
 
             try {
 
@@ -371,11 +392,11 @@ exports.confirmMatches = function(args, res, next) {
 
                         sql(selectOthersStatusSql).then(othersStatusResult => {
 
-                            for ( let i = 0; i < othersStatusResult.length; i ++ ) {
+                            for (let i = 0; i < othersStatusResult.length; i++) {
 
-                                if ( otherSideConfirmedRequests.includes(othersStatusResult[i].own_request_id) ) {
+                                if (otherSideConfirmedRequests.includes(othersStatusResult[i].own_request_id)) {
 
-                                    if ( othersStatusResult[i].other_available_volume < othersStatusResult[i].own_available_volume ) {
+                                    if (othersStatusResult[i].other_available_volume < othersStatusResult[i].own_available_volume) {
 
                                         othersStatusResult[i].own_matched_volume = othersStatusResult[i].own_matched_volume + othersStatusResult[i].other_available_volume;
                                         othersStatusResult[i].other_matched_volume = othersStatusResult[i].other_matched_volume + othersStatusResult[i].other_available_volume;
@@ -469,64 +490,64 @@ exports.confirmMatches = function(args, res, next) {
      * @param callback
      * @private
      */
-      function _updateMatchingSummary( ownRequestId, matchedRequests, statusResult, othersStatusResult, ourSideConfirmedRequestIds, otherSideConfirmedRequests, callback ) {
+    function _updateMatchingSummary(ownRequestId, matchedRequests, statusResult, othersStatusResult, ourSideConfirmedRequestIds, otherSideConfirmedRequests, callback) {
 
-          console.log("STEP 6: _updateMatchingSummary");
+        console.log("STEP 6: _updateMatchingSummary");
 
-          if ( otherSideConfirmedRequests.length > 0 ) {
+        if (otherSideConfirmedRequests.length > 0) {
 
-              console.log("OWN STATUS:", JSON.stringify(statusResult, null, 2));
-              console.log("OTHERS STATUS:", JSON.stringify(othersStatusResult, null, 2));
+            console.log("OWN STATUS:", JSON.stringify(statusResult, null, 2));
+            console.log("OTHERS STATUS:", JSON.stringify(othersStatusResult, null, 2));
 
-              let matchedResultIds = ''
-                  , materialVolumeCaseString = "(CASE ";
+            let matchedResultIds = ''
+                , materialVolumeCaseString = "(CASE ";
 
-              for ( let i = 0; i < statusResult.length; i ++ ) {
+            for (let i = 0; i < statusResult.length; i++) {
 
-                  matchedResultIds = ( matchedResultIds === '' ) ? statusResult[i].id : matchedResultIds + ',' + statusResult[i].id;
-                  materialVolumeCaseString = materialVolumeCaseString + "WHEN matched_result_id = " + statusResult[i].id + " THEN " + statusResult[i].other_matched_volume + " ";
+                matchedResultIds = (matchedResultIds === '') ? statusResult[i].id : matchedResultIds + ',' + statusResult[i].id;
+                materialVolumeCaseString = materialVolumeCaseString + "WHEN matched_result_id = " + statusResult[i].id + " THEN " + statusResult[i].other_matched_volume + " ";
 
-                  if ( (othersStatusResult.length === 0) && (i === statusResult.length - 1) )
-                      materialVolumeCaseString = materialVolumeCaseString + "END)";
-              } //end for
+                if ((othersStatusResult.length === 0) && (i === statusResult.length - 1))
+                    materialVolumeCaseString = materialVolumeCaseString + "END)";
+            } //end for
 
-              if ( othersStatusResult.length > 0 ) {
+            if (othersStatusResult.length > 0) {
 
-                  for ( let i = 0; i < othersStatusResult.length; i ++ ) {
+                for (let i = 0; i < othersStatusResult.length; i++) {
 
-                      matchedResultIds = matchedResultIds + ',' + othersStatusResult[i].id;
-                      materialVolumeCaseString = materialVolumeCaseString + "WHEN matched_result_id = " + othersStatusResult[i].id + " THEN " + othersStatusResult[i].other_matched_volume + " ";
+                    matchedResultIds = matchedResultIds + ',' + othersStatusResult[i].id;
+                    materialVolumeCaseString = materialVolumeCaseString + "WHEN matched_result_id = " + othersStatusResult[i].id + " THEN " + othersStatusResult[i].other_matched_volume + " ";
 
-                      if ( i === othersStatusResult.length - 1 )
-                          materialVolumeCaseString = materialVolumeCaseString + "END)";
-                  } //end for
+                    if (i === othersStatusResult.length - 1)
+                        materialVolumeCaseString = materialVolumeCaseString + "END)";
+                } //end for
 
-              } //end if
+            } //end if
 
-              let updateSqlWithNewVolumes = "UPDATE matched_summaries SET material_volume = " + materialVolumeCaseString + " WHERE matched_result_id IN(" + matchedResultIds + ")";
+            let updateSqlWithNewVolumes = "UPDATE matched_summaries SET material_volume = " + materialVolumeCaseString + " WHERE matched_result_id IN(" + matchedResultIds + ")";
 
-              console.log(updateSqlWithNewVolumes);
+            console.log(updateSqlWithNewVolumes);
 
-              try {
+            try {
 
-                  sql(updateSqlWithNewVolumes).then(updateSqlWithNewVolumes => {
+                sql(updateSqlWithNewVolumes).then(updateSqlWithNewVolumes => {
 
-                      callback(null, ownRequestId, matchedRequests, statusResult, othersStatusResult, ourSideConfirmedRequestIds, otherSideConfirmedRequests);
+                    callback(null, ownRequestId, matchedRequests, statusResult, othersStatusResult, ourSideConfirmedRequestIds, otherSideConfirmedRequests);
 
-                  });
+                });
 
-              } catch (updateSqlWithNewVolumesError) {
+            } catch (updateSqlWithNewVolumesError) {
 
-                  console.log(updateSqlWithNewVolumesError);
-                  callback(updateSqlWithNewVolumesError);
-              }
+                console.log(updateSqlWithNewVolumesError);
+                callback(updateSqlWithNewVolumesError);
+            }
 
-          } else { //nothing to do, as no matches found with the status 'Other Side confirmed'
+        } else { //nothing to do, as no matches found with the status 'Other Side confirmed'
 
-              callback(null, ownRequestId, matchedRequests, statusResult, othersStatusResult, ourSideConfirmedRequestIds, []);
-          }
+            callback(null, ownRequestId, matchedRequests, statusResult, othersStatusResult, ourSideConfirmedRequestIds, []);
+        }
 
-      } //end _updateMatchingSummary
+    } //end _updateMatchingSummary
 
     /**
      * Get Contract Types of All Requests
@@ -540,27 +561,27 @@ exports.confirmMatches = function(args, res, next) {
      * @param callback
      * @private
      */
-      function _getContractTypes( ownRequestId, matchedRequests, statusResult, othersStatusResult, ourSideConfirmedRequestIds, otherSideConfirmedRequests, callback ) {
+    function _getContractTypes(ownRequestId, matchedRequests, statusResult, othersStatusResult, ourSideConfirmedRequestIds, otherSideConfirmedRequests, callback) {
 
-          console.log("STEP 7: _getContractTypes");
+        console.log("STEP 7: _getContractTypes");
 
-          let contractTypes = []
-              , requests = [];
+        let contractTypes = []
+            , requests = [];
 
-          if ( otherSideConfirmedRequests.length > 0 ) {
+        if (otherSideConfirmedRequests.length > 0) {
 
-              requests.push({
-                  "request_id": ownRequestId,
-                  "request_type": statusResult[0].own_request_type,
-                  "filling_purpose": statusResult[0].own_filling_purpose,
-                  "department_key": statusResult[0].own_department_key,
-                  "category": "Own Request",
-                  "id": 0
-              });
+            requests.push({
+                "request_id": ownRequestId,
+                "request_type": statusResult[0].own_request_type,
+                "filling_purpose": statusResult[0].own_filling_purpose,
+                "department_key": statusResult[0].own_department_key,
+                "category": "Own Request",
+                "id": 0
+            });
 
-              for ( let i = 0; i < statusResult.length; i ++ ) {
+            for (let i = 0; i < statusResult.length; i++) {
 
-                  if ( otherSideConfirmedRequests.includes(statusResult[i].matched_request_id) ) {
+                if (otherSideConfirmedRequests.includes(statusResult[i].matched_request_id)) {
 
                     requests.push({
                         "request_id": statusResult[i].matched_request_id,
@@ -571,73 +592,73 @@ exports.confirmMatches = function(args, res, next) {
                         "id": statusResult[i].id
                     });
 
-                  } //end if
+                } //end if
 
-              } //end for
+            } //end for
 
-              /*for ( let i = 0; i < othersStatusResult.length; i ++ ) {
+            /*for ( let i = 0; i < othersStatusResult.length; i ++ ) {
 
-                  if ( otherSideConfirmedRequests.includes(othersStatusResult[i].own_request_id) ) {
+                if ( otherSideConfirmedRequests.includes(othersStatusResult[i].own_request_id) ) {
 
-                      requests.push({
-                          "request_id": othersStatusResult[i].matched_request_id,
-                          "request_type": othersStatusResult[i].other_request_type,
-                          "filling_purpose": othersStatusResult[i].other_filling_purpose,
-                          "department_key": othersStatusResult[i].other_department_key,
-                          "category": "Own Request",
-                          "id": othersStatusResult[i].id
-                      });
+                    requests.push({
+                        "request_id": othersStatusResult[i].matched_request_id,
+                        "request_type": othersStatusResult[i].other_request_type,
+                        "filling_purpose": othersStatusResult[i].other_filling_purpose,
+                        "department_key": othersStatusResult[i].other_department_key,
+                        "category": "Own Request",
+                        "id": othersStatusResult[i].id
+                    });
 
-                  } //end if
+                } //end if
 
-              }*/ //end for
+            }*/ //end for
 
-              let promises = requests.map( (request) => {
+            let promises = requests.map((request) => {
 
-                  let url = clientApiRoot + '/Project/' + request.department_key;
+                let url = clientApiRoot + '/Project/' + request.department_key;
 
-                  const getData = async url => {
+                const getData = async url => {
 
-                      try {
+                    try {
 
-                          const
-                              response = await fetch(url)
-                              , data = await response.json();
+                        const
+                            response = await fetch(url)
+                            , data = await response.json();
 
-                          console.log("PROJECT DETAILS FOR " + request.matched_request_id + ":", JSON.stringify(data, null, 2));
+                        console.log("PROJECT DETAILS FOR " + request.matched_request_id + ":", JSON.stringify(data, null, 2));
 
-                          contractTypes.push({
-                              "id": request.id,
-                              "request_id": request.matched_request_id,
-                              "request_type": request.request_type,
-                              "filling_purpose": request.filling_purpose,
-                              "department_key": request.department_key,
-                              "category": request.category,
-                              "contract_type": data.contractType
-                          });
+                        contractTypes.push({
+                            "id": request.id,
+                            "request_id": request.matched_request_id,
+                            "request_type": request.request_type,
+                            "filling_purpose": request.filling_purpose,
+                            "department_key": request.department_key,
+                            "category": request.category,
+                            "contract_type": data.contractType
+                        });
 
-                      } catch (projectError) {
+                    } catch (projectError) {
 
-                          console.log("Error in Fetching Project Info:");
-                          console.error(projectError);
-                      }
+                        console.log("Error in Fetching Project Info:");
+                        console.error(projectError);
+                    }
 
-                  } //end getData;
+                } //end getData;
 
-                  return getData(url);
+                return getData(url);
 
-              } );
+            });
 
-              Promise.all(promises).then( () => {
-                  callback(null, ownRequestId, matchedRequests, statusResult, ourSideConfirmedRequestIds, otherSideConfirmedRequests, contractTypes);
-              } );
+            Promise.all(promises).then(() => {
+                callback(null, ownRequestId, matchedRequests, statusResult, ourSideConfirmedRequestIds, otherSideConfirmedRequests, contractTypes);
+            });
 
-          } else {
+        } else {
 
-              callback(null, ownRequestId, matchedRequests, statusResult, ourSideConfirmedRequestIds, [], contractTypes);
-          }
+            callback(null, ownRequestId, matchedRequests, statusResult, ourSideConfirmedRequestIds, [], contractTypes);
+        }
 
-      } //end _getContractTypes
+    } //end _getContractTypes
 
     /**
      * Save Compulsory Documents
@@ -651,155 +672,155 @@ exports.confirmMatches = function(args, res, next) {
      * @param callback
      * @private
      */
-    function _saveCompulsoryDocuments( ownRequestId, matchedRequests, statusResult, ourSideConfirmedRequestIds, otherSideConfirmedRequests, contractTypes, callback ) {
+    function _saveCompulsoryDocuments(ownRequestId, matchedRequests, statusResult, ourSideConfirmedRequestIds, otherSideConfirmedRequests, contractTypes, callback) {
 
-          console.log("STEP 8: _saveCompulsoryDocuments");
+        console.log("STEP 8: _saveCompulsoryDocuments");
 
-          if ( otherSideConfirmedRequests.length > 0 ) {
+        if (otherSideConfirmedRequests.length > 0) {
 
-              console.log("CONTRACT TYPES:", JSON.stringify(contractTypes, null, 2));
+            console.log("CONTRACT TYPES:", JSON.stringify(contractTypes, null, 2));
 
-              /*let ownRequestType = ''
-                  , ownFillingPurpose = ''
-                  , ownContractType = ''
-                  , insertData = '';*/
-              let ownRequestType = ( statusResult[0].own_request_type === 'Donator' ) ? 1 : 2
-                  , ownFillingPurpose = ( statusResult[0].own_filling_purpose === 'Permanent' ) ? 1 : 2
-                  , ownContractType = ''
-                  , insertData = '';
+            /*let ownRequestType = ''
+                , ownFillingPurpose = ''
+                , ownContractType = ''
+                , insertData = '';*/
+            let ownRequestType = (statusResult[0].own_request_type === 'Donator') ? 1 : 2
+                , ownFillingPurpose = (statusResult[0].own_filling_purpose === 'Permanent') ? 1 : 2
+                , ownContractType = ''
+                , insertData = '';
 
-              for ( let c = 0; c < contractTypes.length; c ++ ) {
+            for (let c = 0; c < contractTypes.length; c++) {
 
-                  if ( contractTypes[c].category === 'Own Request' )
-                      ownContractType = contractTypes[c].contract_type;
-              }
+                if (contractTypes[c].category === 'Own Request')
+                    ownContractType = contractTypes[c].contract_type;
+            }
 
-              for ( let i = 0; i < contractTypes.length; i ++ ) {
+            for (let i = 0; i < contractTypes.length; i++) {
 
-                  if ( contractTypes[i].category === 'Other Request' ) {
+                if (contractTypes[i].category === 'Other Request') {
 
-                      let otherRequestType = ( contractTypes[i].request_type === 'Donator' ) ? 1 : 2
-                          , otherFillingPurpose = ( contractTypes[i].filling_purpose === 'Permanent' ) ? 1 : 2
-                          , otherContractType = contractTypes[i].contract_type
-                          , matchedResultId = contractTypes[i].id
-                          , currentTime = new Date().toISOString();
+                    let otherRequestType = (contractTypes[i].request_type === 'Donator') ? 1 : 2
+                        , otherFillingPurpose = (contractTypes[i].filling_purpose === 'Permanent') ? 1 : 2
+                        , otherContractType = contractTypes[i].contract_type
+                        , matchedResultId = contractTypes[i].id
+                        , currentTime = new Date().toISOString();
 
-                      //check Case 1
-                      if ( ownContractType === 'PRIVATE' && otherContractType === 'PRIVATE' ) {
+                    //check Case 1
+                    if (ownContractType === 'PRIVATE' && otherContractType === 'PRIVATE') {
 
-                          if ( ownRequestType === 1 && otherRequestType === 2 && otherFillingPurpose !== 1 ) {
+                        if (ownRequestType === 1 && otherRequestType === 2 && otherFillingPurpose !== 1) {
 
-                              console.log("CASE 1");
+                            console.log("CASE 1");
 
-                              if ( insertData === '' )
-                                  insertData = "(" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (Donator to Receiver)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 1, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Acceptance (Receiver to Donator)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 1, 0, '" + currentTime + "')";
-                              else
-                                  insertData = insertData + ", (" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (Donator to Receiver)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 1, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Acceptance (Receiver to Donator)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 1, 0, '" + currentTime + "')";
-                          }
+                            if (insertData === '')
+                                insertData = "(" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (Donator to Receiver)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 1, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Acceptance (Receiver to Donator)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 1, 0, '" + currentTime + "')";
+                            else
+                                insertData = insertData + ", (" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (Donator to Receiver)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 1, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Acceptance (Receiver to Donator)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 1, 0, '" + currentTime + "')";
+                        }
 
-                          if ( otherRequestType === 1 && ownRequestType === 2 && ownFillingPurpose !== 1 ) {
+                        if (otherRequestType === 1 && ownRequestType === 2 && ownFillingPurpose !== 1) {
 
-                              console.log("CASE 1");
+                            console.log("CASE 1");
 
-                              if ( insertData === '' )
-                                  insertData = "(" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (Donator to Receiver)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 1, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Acceptance (Receiver to Donator)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 1, 0, '" + currentTime + "')";
-                              else
-                                  insertData = insertData + ", (" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (Donator to Receiver)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 1, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Acceptance (Receiver to Donator)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 1, 0, '" + currentTime + "')";
-                          }
+                            if (insertData === '')
+                                insertData = "(" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (Donator to Receiver)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 1, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Acceptance (Receiver to Donator)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 1, 0, '" + currentTime + "')";
+                            else
+                                insertData = insertData + ", (" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (Donator to Receiver)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 1, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Acceptance (Receiver to Donator)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 1, 0, '" + currentTime + "')";
+                        }
 
-                          if ( ownRequestType === 1 && otherRequestType === 2 && otherFillingPurpose === 1 ) {
+                        if (ownRequestType === 1 && otherRequestType === 2 && otherFillingPurpose === 1) {
 
-                              console.log("CASE 2");
+                            console.log("CASE 2");
 
-                              if ( insertData === '' )
-                                  insertData = "(" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (Donator to Receiver)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 2, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Test Report', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 2, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Acceptance (Receiver to Donator)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 2, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter of Acceptance (Client to Receiver)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 2, 0, '" + currentTime + "')";
-                              else
-                                  insertData = insertData + ", (" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (Donator to Receiver)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 2, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Test Report', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 2, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Acceptance (Receiver to Donator)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 2, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter of Acceptance (Client to Receiver)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 2, 0, '" + currentTime + "')";
-                          }
+                            if (insertData === '')
+                                insertData = "(" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (Donator to Receiver)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 2, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Test Report', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 2, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Acceptance (Receiver to Donator)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 2, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter of Acceptance (Client to Receiver)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 2, 0, '" + currentTime + "')";
+                            else
+                                insertData = insertData + ", (" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (Donator to Receiver)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 2, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Test Report', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 2, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Acceptance (Receiver to Donator)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 2, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter of Acceptance (Client to Receiver)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 2, 0, '" + currentTime + "')";
+                        }
 
-                          if ( otherRequestType === 1 && ownRequestType === 2 && ownFillingPurpose === 1 ) {
+                        if (otherRequestType === 1 && ownRequestType === 2 && ownFillingPurpose === 1) {
 
-                              console.log("CASE 2");
+                            console.log("CASE 2");
 
-                              if ( insertData === '' )
-                                  insertData = "(" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (Donator to Receiver)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 2, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Test Report', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 2, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Acceptance (Receiver to Donator)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 2, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter of Acceptance (Client to Receiver)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 2, 0, '" + currentTime + "')";
-                              else
-                                  insertData = insertData + ", (" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (Donator to Receiver)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 2, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Test Report', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 2, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Acceptance (Receiver to Donator)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 2, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter of Acceptance (Client to Receiver)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 2, 0, '" + currentTime + "')";
-                          }
+                            if (insertData === '')
+                                insertData = "(" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (Donator to Receiver)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 2, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Test Report', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 2, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Acceptance (Receiver to Donator)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 2, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter of Acceptance (Client to Receiver)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 2, 0, '" + currentTime + "')";
+                            else
+                                insertData = insertData + ", (" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (Donator to Receiver)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 2, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Test Report', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 2, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Acceptance (Receiver to Donator)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 2, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter of Acceptance (Client to Receiver)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 2, 0, '" + currentTime + "')";
+                        }
 
-                      } //end Case 1 & 2
+                    } //end Case 1 & 2
 
 
-                      if ( ownContractType === 'GOVERNMENT' || otherContractType === 'GOVERNMENT' ) {
+                    if (ownContractType === 'GOVERNMENT' || otherContractType === 'GOVERNMENT') {
 
-                         if ( ownRequestType === 1 && otherRequestType === 2 && otherFillingPurpose !== 1 ) {
-
-                             console.log("CASE 3");
-
-                              if ( insertData === '' )
-                                  insertData = "(" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (Donator to Receiver)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (HH to Client)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter for Disposal to Receiver (Client to HH)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Acceptance (Receiver to Donator)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Request for Acceptance (Receiver to Client)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter for Acceptance from Donator (Client to Receiver)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 3, 0, '" + currentTime + "')";
-                              else
-                                  insertData = insertData + ", (" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (Donator to Receiver)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (HH to Client)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter for Disposal to Receiver (Client to HH)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Acceptance (Receiver to Donator)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Request for Acceptance (Receiver to Client)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter for Acceptance from Donator (Client to Receiver)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 3, 0, '" + currentTime + "')";
-                          }
-
-                         if ( otherRequestType === 1 && ownRequestType === 2 && ownFillingPurpose !== 1 ) {
+                        if (ownRequestType === 1 && otherRequestType === 2 && otherFillingPurpose !== 1) {
 
                             console.log("CASE 3");
 
-                             if ( insertData === '' )
-                                 insertData = "(" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (Donator to Receiver)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (HH to Client)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter for Disposal to Receiver (Client to HH)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Acceptance (Receiver to Donator)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Request for Acceptance (Receiver to Client)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter for Acceptance from Donator (Client to Receiver)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 3, 0, '" + currentTime + "')";
-                             else
-                                  insertData = insertData + ", (" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (Donator to Receiver)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (HH to Client)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter for Disposal to Receiver (Client to HH)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Acceptance (Receiver to Donator)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Request for Acceptance (Receiver to Client)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter for Acceptance from Donator (Client to Receiver)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 3, 0, '" + currentTime + "')";
-                         }
+                            if (insertData === '')
+                                insertData = "(" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (Donator to Receiver)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (HH to Client)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter for Disposal to Receiver (Client to HH)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Acceptance (Receiver to Donator)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Request for Acceptance (Receiver to Client)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter for Acceptance from Donator (Client to Receiver)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 3, 0, '" + currentTime + "')";
+                            else
+                                insertData = insertData + ", (" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (Donator to Receiver)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (HH to Client)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter for Disposal to Receiver (Client to HH)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Acceptance (Receiver to Donator)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Request for Acceptance (Receiver to Client)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter for Acceptance from Donator (Client to Receiver)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 3, 0, '" + currentTime + "')";
+                        }
 
-                         if ( ownRequestType === 1 && otherRequestType === 2 && otherFillingPurpose === 1 ) {
+                        if (otherRequestType === 1 && ownRequestType === 2 && ownFillingPurpose !== 1) {
 
-                             console.log("CASE 4");
+                            console.log("CASE 3");
 
-                             if ( insertData === '' )
-                                 insertData = "(" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (Donator to Receiver)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Test Report', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (HH to Client)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter for Disposal to Receiver (Client to HH)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Acceptance (Receiver to Donator)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 5, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Request for Acceptance (Receiver to Client)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter for Acceptance from Donator (Client to Receiver)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 4, 0, '" + currentTime + "')";
-                             else
-                                 insertData = insertData + ", (" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (Donator to Receiver)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Test Report', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (HH to Client)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter for Disposal to Receiver (Client to HH)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Acceptance (Receiver to Donator)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 5, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Request for Acceptance (Receiver to Client)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter for Acceptance from Donator (Client to Receiver)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 4, 0, '" + currentTime + "')";
-                         }
+                            if (insertData === '')
+                                insertData = "(" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (Donator to Receiver)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (HH to Client)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter for Disposal to Receiver (Client to HH)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Acceptance (Receiver to Donator)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Request for Acceptance (Receiver to Client)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter for Acceptance from Donator (Client to Receiver)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 3, 0, '" + currentTime + "')";
+                            else
+                                insertData = insertData + ", (" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (Donator to Receiver)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (HH to Client)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter for Disposal to Receiver (Client to HH)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Acceptance (Receiver to Donator)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Request for Acceptance (Receiver to Client)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 3, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter for Acceptance from Donator (Client to Receiver)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 3, 0, '" + currentTime + "')";
+                        }
 
-                         if ( otherRequestType === 1 && ownRequestType === 2 && ownFillingPurpose === 1 ) {
+                        if (ownRequestType === 1 && otherRequestType === 2 && otherFillingPurpose === 1) {
 
-                             console.log("CASE 4");
+                            console.log("CASE 4");
 
-                             if ( insertData === '' )
-                                 insertData = "(" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (Donator to Receiver)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Test Report', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (HH to Client)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter for Disposal to Receiver (Client to HH)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Acceptance (Receiver to Donator)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 5, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Request for Acceptance (Receiver to Client)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter for Acceptance from Donator (Client to Receiver)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 4, 0, '" + currentTime + "')";
-                             else
-                                 insertData = insertData + ", (" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (Donator to Receiver)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Test Report', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (HH to Client)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter for Disposal to Receiver (Client to HH)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Acceptance (Receiver to Donator)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 5, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Request for Acceptance (Receiver to Client)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter for Acceptance from Donator (Client to Receiver)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 4, 0, '" + currentTime + "')";
-                         }
+                            if (insertData === '')
+                                insertData = "(" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (Donator to Receiver)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Test Report', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (HH to Client)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter for Disposal to Receiver (Client to HH)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Acceptance (Receiver to Donator)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 5, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Request for Acceptance (Receiver to Client)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter for Acceptance from Donator (Client to Receiver)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 4, 0, '" + currentTime + "')";
+                            else
+                                insertData = insertData + ", (" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (Donator to Receiver)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Test Report', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (HH to Client)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter for Disposal to Receiver (Client to HH)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Acceptance (Receiver to Donator)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 5, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Request for Acceptance (Receiver to Client)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter for Acceptance from Donator (Client to Receiver)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 4, 0, '" + currentTime + "')";
+                        }
 
-                      } //end Case 3 & 4
+                        if (otherRequestType === 1 && ownRequestType === 2 && ownFillingPurpose === 1) {
 
-                  } //end if
+                            console.log("CASE 4");
 
-              } //end for
+                            if (insertData === '')
+                                insertData = "(" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (Donator to Receiver)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Test Report', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (HH to Client)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter for Disposal to Receiver (Client to HH)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Acceptance (Receiver to Donator)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 5, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Request for Acceptance (Receiver to Client)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter for Acceptance from Donator (Client to Receiver)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 4, 0, '" + currentTime + "')";
+                            else
+                                insertData = insertData + ", (" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (Donator to Receiver)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Test Report', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Request for Disposal to Receiver (HH to Client)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter for Disposal to Receiver (Client to HH)', 'na', " + otherRequestType + ", " + otherFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Acceptance (Receiver to Donator)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 5, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Letter of Request for Acceptance (Receiver to Client)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 4, 0, '" + currentTime + "'), (" + matchedResultId + ", 'Approval Letter for Acceptance from Donator (Client to Receiver)', 'na', " + ownRequestType + ", " + ownFillingPurpose + ", 4, 0, '" + currentTime + "')";
+                        }
 
-              let documentInsertSqlQuery = "INSERT INTO documents (matched_result_id, name, compulsory_document, request_type, filling_purpose, matched_case, status, created_at) VALUES " + insertData;
-              console.log(documentInsertSqlQuery);
+                    } //end Case 3 & 4
 
-              try {
+                } //end if
 
-                  sql(documentInsertSqlQuery).then(documentInsert => {
+            } //end for
 
-                      callback(null, ourSideConfirmedRequestIds, otherSideConfirmedRequests );
+            let documentInsertSqlQuery = "INSERT INTO documents (matched_result_id, name, compulsory_document, request_type, filling_purpose, matched_case, status, created_at) VALUES " + insertData;
+            console.log(documentInsertSqlQuery);
 
-                  });
+            try {
 
-              } catch (documentInsertError) {
+                sql(documentInsertSqlQuery).then(documentInsert => {
 
-                  console.log("DOCUMENT INSERTION ERROR IN STEP 8:");
-                  console.log(documentInsertError);
-                  callback(documentInsertError);
-              }
+                    callback(null, ourSideConfirmedRequestIds, otherSideConfirmedRequests);
 
-          } else {
-              callback(null, ourSideConfirmedRequestIds, otherSideConfirmedRequests);
-          }
+                });
 
-      } //end _saveCompulsoryDocuments
+            } catch (documentInsertError) {
+
+                console.log("DOCUMENT INSERTION ERROR IN STEP 8:");
+                console.log(documentInsertError);
+                callback(documentInsertError);
+            }
+
+        } else {
+            callback(null, ourSideConfirmedRequestIds, otherSideConfirmedRequests);
+        }
+
+    } //end _saveCompulsoryDocuments
 
 };
