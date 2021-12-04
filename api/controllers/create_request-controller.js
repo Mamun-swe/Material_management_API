@@ -1,15 +1,28 @@
 
 const sql = require("../../config/sql")
-    , messages = require("../../config/constant")
-    , async = require('async')
-    , matching = require('../helpers/matching')
-    , apiKey = process.env.GOOGLE_API_KEY
-    , distance = require("google-distance-matrix")
-    , Console = require("console");
+const messages = require("../../config/constant")
+const async = require('async')
+const auth = require("../helpers/auth")
+const matching = require('../helpers/matching')
+const apiKey = process.env.GOOGLE_API_KEY
+const distance = require("google-distance-matrix")
+const Console = require("console");
 
 
 /* Create a Backfill/Disposal Request */
-exports.createRequest = function (args, res, next) {
+exports.createRequest = async (args, res, next) => {
+    if (!args.headers.authorization) {
+        return res.status(404).json({
+            message: messages.TOKEN_IS_EMPTY
+        })
+    }
+
+    const verifiedHeader = await auth.isValidToken(args.headers)
+    if (!verifiedHeader) {
+        return res.status(501).json({
+            message: messages.INVALID_TOKEN
+        })
+    }
 
     let inputParams = args.body;
 

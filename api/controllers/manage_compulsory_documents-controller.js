@@ -1,11 +1,23 @@
 require("dotenv").config();
 
 const sql = require("../../config/sql")
-    , messages = require("../../config/constant");
-
+const messages = require("../../config/constant");
+const auth = require("../helpers/auth")
 
 /* Update/Remove Compulsory Documents for Matched Requests */
-exports.manageDocuments = function(args, res, next) {
+exports.manageDocuments = async(args, res, next)=> {
+    if (!args.headers.authorization) {
+        return res.status(404).json({
+            message: messages.TOKEN_IS_EMPTY
+        })
+    }
+
+    const verifiedHeader = await auth.isValidToken(args.headers)
+    if (!verifiedHeader) {
+        return res.status(501).json({
+            message: messages.INVALID_TOKEN
+        })
+    }
 
     let inputParams = args.body
         , id = inputParams.document_id

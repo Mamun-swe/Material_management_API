@@ -1,41 +1,52 @@
-require("dotenv").config();
 
 const sql = require("../../config/sql")
-    , messages = require("../../config/constant")
-    , async = require('async')
-    , apiKey = process.env.GOOGLE_API_KEY
-    , matching = require('../helpers/matching');
+const messages = require("../../config/constant")
+const async = require('async')
+const auth = require("../helpers/auth")
+const apiKey = process.env.GOOGLE_API_KEY
+const matching = require('../helpers/matching');
 const distance = require("google-distance-matrix");
-const Console = require("console");
-
 
 /* Update an Existing Backfil/Disposal Request */
-exports.updateRequest = function(args, res, next) {
+exports.updateRequest = async (args, res, next) => {
+
+    if (!args.headers.authorization) {
+        return res.status(404).json({
+            message: messages.TOKEN_IS_EMPTY
+        })
+    }
+
+    const verifiedHeader = await auth.isValidToken(args.headers)
+    if (!verifiedHeader) {
+        return res.status(501).json({
+            message: messages.INVALID_TOKEN
+        })
+    }
 
     let inputParams = args.body;
 
     async.waterfall([
-            _saveRequestBasic( inputParams ),
-            _saveMaterials,
-            _saveSupplementaryDocuments,
-            _saveContacts,
-            _rematchCollectMatchedRequestIds,
-            _rematchAdjustMaterialVolumesToBothConfirmed,
-            _rematchAdjustMaterialVolumesAsSuggested,
-            _rematchAdjustMaterialVolumesAsOwn,
-            _rematchCollectOwnedRequests,
-            _rematchAdjustMatchedResultsForOwnedRequests,
-            _rematchRemoveAllMatches,
-            _rematchWithFillingPurposeAndScheduleOverlap,
-            _rematchWithMaterialTypeAndQuality,
-            _rematchWithMaterialVolume,
-            _rematchWithLocation,
-            _saveReMatches,
-            _saveOtherSideReMatches
-        ],
+        _saveRequestBasic(inputParams),
+        _saveMaterials,
+        _saveSupplementaryDocuments,
+        _saveContacts,
+        _rematchCollectMatchedRequestIds,
+        _rematchAdjustMaterialVolumesToBothConfirmed,
+        _rematchAdjustMaterialVolumesAsSuggested,
+        _rematchAdjustMaterialVolumesAsOwn,
+        _rematchCollectOwnedRequests,
+        _rematchAdjustMatchedResultsForOwnedRequests,
+        _rematchRemoveAllMatches,
+        _rematchWithFillingPurposeAndScheduleOverlap,
+        _rematchWithMaterialTypeAndQuality,
+        _rematchWithMaterialVolume,
+        _rematchWithLocation,
+        _saveReMatches,
+        _saveOtherSideReMatches
+    ],
         function (err, result) {
 
-            if ( err ) {
+            if (err) {
 
                 console.log("ERROR IN UPDATING PROCESS: ", JSON.stringify(err, null, 2));
 
@@ -62,18 +73,15 @@ exports.updateRequest = function(args, res, next) {
      * @param {object} inputParams
      * @return {object}
      */
-    function _saveRequestBasic( inputParams ) {
-
-        console.log("STEP 1: _saveRequestBasic");
-
-        return function ( callback ) {
+    function _saveRequestBasic(inputParams) {
+        return function (callback) {
 
             let
-                requestType = ( inputParams.request_type === 'Disposal' ) ? 1 : 2
-                , fillingPurpose = ( inputParams.filling_purpose === 'Permanent' ) ? 1 : 2
-                , scheduleStatus = ( inputParams.schedule_status === 'Confirmed' ) ? 1 : 2
-                , scheduleStartDate = new Date( inputParams.schedule_start_date )
-                , scheduleEndDate = new Date( inputParams.schedule_end_date )
+                requestType = (inputParams.request_type === 'Disposal') ? 1 : 2
+                , fillingPurpose = (inputParams.filling_purpose === 'Permanent') ? 1 : 2
+                , scheduleStatus = (inputParams.schedule_status === 'Confirmed') ? 1 : 2
+                , scheduleStartDate = new Date(inputParams.schedule_start_date)
+                , scheduleEndDate = new Date(inputParams.schedule_end_date)
                 , currentTime = new Date().toISOString()
                 , shouldRematch = false;
 
@@ -87,9 +95,9 @@ exports.updateRequest = function(args, res, next) {
 
             try {
 
-                sql(checkUpdateCriteriaSql).then( checkResult => {
+                sql(checkUpdateCriteriaSql).then(checkResult => {
 
-                    if ( checkResult.length === 0 )
+                    if (checkResult.length === 0)
                         shouldRematch = true;
 
                     try {
@@ -113,23 +121,23 @@ exports.updateRequest = function(args, res, next) {
 
                             }).then(basicUpdateResult => {
 
-                            callback( null, inputParams, shouldRematch );
+                                callback(null, inputParams, shouldRematch);
 
-                        });
+                            });
                     } catch (basicUpdateSqlError) {
 
                         console.log("BASIC UPDATE ERROR:");
                         console.log(basicUpdateSqlError);
 
-                        callback( basicUpdateSqlError );
+                        callback(basicUpdateSqlError);
                     }
 
-                } );
+                });
 
             } catch (checkError) {
                 console.log('Check SQL Error');
                 console.log(checkError);
-                callback( checkError );
+                callback(checkError);
             }
 
         } //end return
@@ -146,14 +154,11 @@ exports.updateRequest = function(args, res, next) {
      *
      * @return {object}
      */
-    function _saveMaterials( inputParams, shouldRematch, callback ) {
-
-        console.log("STEP 2: _saveMaterials");
-
+    function _saveMaterials(inputParams, shouldRematch, callback) {
         let
             materialType = inputParams.material_type
-            , materialQuality = ( materialType === 'Broken Concrete' ) ? '' : inputParams.material_quality
-        ;
+            , materialQuality = (materialType === 'Broken Concrete') ? '' : inputParams.material_quality
+            ;
 
         try {
             sql(
@@ -164,15 +169,15 @@ exports.updateRequest = function(args, res, next) {
                     requestId: inputParams.id
                 }).then(materialUpdateResult => {
 
-                callback( null, inputParams, shouldRematch );
+                    callback(null, inputParams, shouldRematch);
 
-            });
+                });
         } catch (materialUpdateError) {
 
             console.log("MATERIAL UPDATE ERROR:");
             console.log(materialUpdateError);
 
-            callback( materialUpdateError );
+            callback(materialUpdateError);
 
         }
 
@@ -189,11 +194,8 @@ exports.updateRequest = function(args, res, next) {
      *
      * @return {object}
      */
-    function _saveSupplementaryDocuments( inputParams, shouldRematch, callback ) {
-
-        console.log("STEP 3: _saveSupplementaryDocuments");
-
-        if ( inputParams.hasOwnProperty('supplementary_documents') !== false && inputParams.supplementary_documents !== '' ) { // supplementary document(s) exist
+    function _saveSupplementaryDocuments(inputParams, shouldRematch, callback) {
+        if (inputParams.hasOwnProperty('supplementary_documents') !== false && inputParams.supplementary_documents !== '') { // supplementary document(s) exist
 
             let requestId = inputParams.id;
 
@@ -201,52 +203,52 @@ exports.updateRequest = function(args, res, next) {
                 sql(
                     "DELETE supplementaries WHERE request_id = @requestId", { requestId: requestId }).then(documentDeleteResult => {
 
-                    let
-                        documentNames = inputParams.supplementary_document_names
-                        , names = documentNames.split(',')
-                        , docs = inputParams.supplementary_documents
-                        , documents = docs.split(',')
-                        , n = documents.length
-                        , insertData = ''
-                    ;
+                        let
+                            documentNames = inputParams.supplementary_document_names
+                            , names = documentNames.split(',')
+                            , docs = inputParams.supplementary_documents
+                            , documents = docs.split(',')
+                            , n = documents.length
+                            , insertData = ''
+                            ;
 
-                    for ( var i = 0; i < n; i ++ ) {
+                        for (var i = 0; i < n; i++) {
 
-                        if ( i === 0 )
-                            insertData = "(" + requestId + ", '" + names[i] + "', '" + documents[i] + "')";
-                        else
-                            insertData = insertData + ", (" + requestId + ", '" + names[i] + "', '" + documents[i] + "')";
-                    }
+                            if (i === 0)
+                                insertData = "(" + requestId + ", '" + names[i] + "', '" + documents[i] + "')";
+                            else
+                                insertData = insertData + ", (" + requestId + ", '" + names[i] + "', '" + documents[i] + "')";
+                        }
 
-                    try {
-                        sql( "INSERT INTO supplementaries (request_id, name, supplementary_document) VALUES " + insertData ).then(documentResult => {
+                        try {
+                            sql("INSERT INTO supplementaries (request_id, name, supplementary_document) VALUES " + insertData).then(documentResult => {
 
-                            callback( null, inputParams, shouldRematch );
+                                callback(null, inputParams, shouldRematch);
 
-                        });
-                    } catch (documentInsertionError) {
+                            });
+                        } catch (documentInsertionError) {
 
-                        console.log("DOCUMENT INSERTION ERROR:");
-                        console.log(documentInsertionError);
+                            console.log("DOCUMENT INSERTION ERROR:");
+                            console.log(documentInsertionError);
 
-                        callback( documentInsertionError );
+                            callback(documentInsertionError);
 
-                    }
+                        }
 
-                });
+                    });
             } catch (documentDeleteError) {
 
                 console.log("DOCUMENT DELETE ERROR");
                 console.log(documentDeleteError);
 
-                callback( documentDeleteError );
+                callback(documentDeleteError);
 
             }
 
 
-        }  else { // there is no supplementary document(s)
+        } else { // there is no supplementary document(s)
 
-            callback( null, inputParams, shouldRematch );
+            callback(null, inputParams, shouldRematch);
 
         } //end else
 
@@ -263,11 +265,8 @@ exports.updateRequest = function(args, res, next) {
      *
      * @return {object}
      */
-    function _saveContacts( inputParams, shouldRematch, callback ) {
-
-        console.log("STEP 4: _saveContacts");
-
-        if ( inputParams.hasOwnProperty('contact_names') !== false && inputParams.contact_names !== '' ) { // contact(s) exist
+    function _saveContacts(inputParams, shouldRematch, callback) {
+        if (inputParams.hasOwnProperty('contact_names') !== false && inputParams.contact_names !== '') { // contact(s) exist
 
             let requestId = inputParams.id;
 
@@ -275,52 +274,52 @@ exports.updateRequest = function(args, res, next) {
                 sql(
                     "DELETE contacts WHERE request_id = @requestId", { requestId: requestId }).then(contactDeleteResult => {
 
-                    let
-                        contactNames = inputParams.contact_names
-                        , names = contactNames.split(',')
-                        , contactPhones = inputParams.contact_phones
-                        , phones = contactPhones.split(',')
-                        , n = names.length
-                        , insertData = ''
-                    ;
+                        let
+                            contactNames = inputParams.contact_names
+                            , names = contactNames.split(',')
+                            , contactPhones = inputParams.contact_phones
+                            , phones = contactPhones.split(',')
+                            , n = names.length
+                            , insertData = ''
+                            ;
 
-                    for ( var i = 0; i < n; i ++ ) {
+                        for (var i = 0; i < n; i++) {
 
-                        if ( i === 0 )
-                            insertData = "(" + requestId + ", '" + names[i] + "', '" + phones[i] + "')";
-                        else
-                            insertData = insertData + ", (" + requestId + ", '" + names[i] + "', '" + phones[i] + "')";
-                    }
+                            if (i === 0)
+                                insertData = "(" + requestId + ", '" + names[i] + "', '" + phones[i] + "')";
+                            else
+                                insertData = insertData + ", (" + requestId + ", '" + names[i] + "', '" + phones[i] + "')";
+                        }
 
-                    let sqlQuery = "INSERT INTO contacts (request_id, name, phone) VALUES " + insertData;
+                        let sqlQuery = "INSERT INTO contacts (request_id, name, phone) VALUES " + insertData;
 
-                    try {
-                        sql(sqlQuery).then(contactResult => {
+                        try {
+                            sql(sqlQuery).then(contactResult => {
 
-                            callback( null, inputParams, shouldRematch );
+                                callback(null, inputParams, shouldRematch);
 
-                        });
-                    } catch (contactInsertionError) {
+                            });
+                        } catch (contactInsertionError) {
 
-                        console.log("CONTACT INSERTION ERROR:", JSON.stringify(contactInsertionError, null, 2));
-                        callback( contactInsertionError );
+                            console.log("CONTACT INSERTION ERROR:", JSON.stringify(contactInsertionError, null, 2));
+                            callback(contactInsertionError);
 
-                    }
+                        }
 
-                });
+                    });
             } catch (contactDeleteError) {
 
                 console.log("CONTACT DELETE ERROR");
                 console.log(contactDeleteError);
 
-                callback( contactDeleteError );
+                callback(contactDeleteError);
 
             }
 
 
-        }  else { // there is no contact(s)
+        } else { // there is no contact(s)
 
-            callback( null, inputParams, shouldRematch );
+            callback(null, inputParams, shouldRematch);
 
         } //end else
 
@@ -335,42 +334,39 @@ exports.updateRequest = function(args, res, next) {
      * @param callback
      * @private
      */
-    function _rematchCollectMatchedRequestIds( inputParams, shouldRematch, callback ) {
-
-        console.log("STEP 5: _rematchCollectMatchedRequestIds");
-
+    function _rematchCollectMatchedRequestIds(inputParams, shouldRematch, callback) {
         let deletableIds = []
             , ownRequestIds = [];
 
-        if ( shouldRematch ) {
+        if (shouldRematch) {
 
             try {
 
                 sql("SELECT id, matched_request_id, status FROM matched_results WHERE own_request_id = @requestId", { requestId: inputParams.id }).then(collections => {
 
-                    if ( collections.length > 0 ) {
+                    if (collections.length > 0) {
 
                         let matchedRequestIds = []
                             , bothConfirmedMatches = [];
 
-                        for ( let c = 0; c < collections.length; c ++ ) {
+                        for (let c = 0; c < collections.length; c++) {
 
-                            deletableIds.push( collections[c].id );
-                            matchedRequestIds.push( collections[c].matched_request_id );
+                            deletableIds.push(collections[c].id);
+                            matchedRequestIds.push(collections[c].matched_request_id);
 
-                            if ( collections[c].status === 3 )
-                                bothConfirmedMatches.push( collections[c].matched_request_id );
+                            if (collections[c].status === 3)
+                                bothConfirmedMatches.push(collections[c].matched_request_id);
 
                         } //end for
 
                         try {
                             sql("SELECT id FROM matched_results WHERE own_request_id IN (" + matchedRequestIds.join() + ") AND matched_request_id = @requestId", { requestId: inputParams.id }).then(otherMatchedResult => {
-                                
-                                for ( let m = 0; m < otherMatchedResult.length; m++ ) {    
-                                    deletableIds.push( otherMatchedResult[m].id );
+
+                                for (let m = 0; m < otherMatchedResult.length; m++) {
+                                    deletableIds.push(otherMatchedResult[m].id);
                                 }
-    
-                                let joinSql  = "SELECT M.id, M.own_request_id, M.matched_request_id, M.status, S.material_volume " +
+
+                                let joinSql = "SELECT M.id, M.own_request_id, M.matched_request_id, M.status, S.material_volume " +
                                     "FROM matched_results M " +
                                     "INNER JOIN matched_summaries AS S ON ( S.matched_result_id = M.id ) " +
                                     "WHERE matched_request_id IN(" + matchedRequestIds.join() + ") AND own_request_id != " + inputParams.id;
@@ -379,10 +375,10 @@ exports.updateRequest = function(args, res, next) {
 
                                     sql(joinSql).then(matchesForOwners => {
 
-                                        if ( matchesForOwners.length > 0 )
-                                            callback( null, inputParams, shouldRematch, deletableIds, [], bothConfirmedMatches );
+                                        if (matchesForOwners.length > 0)
+                                            callback(null, inputParams, shouldRematch, deletableIds, [], bothConfirmedMatches);
                                         else
-                                            callback( null, inputParams, shouldRematch, deletableIds, matchesForOwners, bothConfirmedMatches );
+                                            callback(null, inputParams, shouldRematch, deletableIds, matchesForOwners, bothConfirmedMatches);
 
                                     });
 
@@ -396,11 +392,11 @@ exports.updateRequest = function(args, res, next) {
                         } catch (otherMatchedResultError) {
                             console.log("OTHER MATCH SQL ERROR IN STEP 5:");
                             console.log(otherMatchedResultError);
-                            callback( otherMatchedResultError );
+                            callback(otherMatchedResultError);
                         } //end of select query
 
                     } else {
-                        callback( null, inputParams, shouldRematch, [], [], [] );
+                        callback(null, inputParams, shouldRematch, [], [], []);
                     }
 
                 });
@@ -413,7 +409,7 @@ exports.updateRequest = function(args, res, next) {
             }
 
         } else {
-            callback( null, inputParams, shouldRematch, [], [], [] );
+            callback(null, inputParams, shouldRematch, [], [], []);
         }
 
     } //end _rematchCollectMatchedRequestIds
@@ -429,13 +425,10 @@ exports.updateRequest = function(args, res, next) {
      * @param callback
      * @private
      */
-    function _rematchAdjustMaterialVolumesToBothConfirmed( inputParams, shouldRematch, deletableIds, matchesForOwners, bothConfirmedMatches, callback ) {
+    function _rematchAdjustMaterialVolumesToBothConfirmed(inputParams, shouldRematch, deletableIds, matchesForOwners, bothConfirmedMatches, callback) {
+        if (shouldRematch !== false && bothConfirmedMatches.length > 0) {
 
-        console.log("STEP 6: _rematchAdjustMaterialVolumesToBothConfirmed");
-
-        if ( shouldRematch !== false && bothConfirmedMatches.length > 0 ) {
-
-            let joinSql  = "SELECT M.id, M.own_request_id, M.matched_request_id, M.status, S.material_volume " +
+            let joinSql = "SELECT M.id, M.own_request_id, M.matched_request_id, M.status, S.material_volume " +
                 "FROM matched_results M " +
                 "INNER JOIN matched_summaries AS S ON ( S.matched_result_id = M.id ) " +
                 "WHERE matched_request_id IN(" + bothConfirmedMatches.join() + ") AND own_request_id = " + inputParams.id;
@@ -444,27 +437,27 @@ exports.updateRequest = function(args, res, next) {
 
                 sql(joinSql).then(bothConfirmedRequests => {
 
-                    if ( bothConfirmedRequests.length > 0 ) {
+                    if (bothConfirmedRequests.length > 0) {
 
                         let materialVolumes = []
                             , matchedRequestIds = [];
 
-                        for ( let b = 0; b < bothConfirmedRequests.length; b ++ ) {
+                        for (let b = 0; b < bothConfirmedRequests.length; b++) {
 
-                            materialVolumes.push( bothConfirmedRequests[b].material_volume );
-                            matchedRequestIds.push( bothConfirmedRequests[b].matched_request_id );
+                            materialVolumes.push(bothConfirmedRequests[b].material_volume);
+                            matchedRequestIds.push(bothConfirmedRequests[b].matched_request_id);
 
                         } //end for
 
                         let matchedVolumeCaseString = "(CASE "
                             , availableVolumeCaseString = "(CASE ";
 
-                        for ( let i = 0; i < materialVolumes.length; i ++ ) {
+                        for (let i = 0; i < materialVolumes.length; i++) {
 
                             matchedVolumeCaseString = matchedVolumeCaseString + "WHEN id = " + matchedRequestIds[i] + " THEN matched_volume - " + materialVolumes[i] + " ";
                             availableVolumeCaseString = availableVolumeCaseString + "WHEN id = " + matchedRequestIds[i] + " THEN available_volume + " + materialVolumes[i] + " ";
 
-                            if ( i === materialVolumes.length - 1 ) {
+                            if (i === materialVolumes.length - 1) {
 
                                 matchedVolumeCaseString = matchedVolumeCaseString + "END)";
                                 availableVolumeCaseString = availableVolumeCaseString + "END)";
@@ -485,7 +478,7 @@ exports.updateRequest = function(args, res, next) {
                         }
 
                     } else {
-                        callback( null, inputParams, shouldRematch, deletableIds, matchesForOwners );
+                        callback(null, inputParams, shouldRematch, deletableIds, matchesForOwners);
                     }
                 });
 
@@ -497,7 +490,7 @@ exports.updateRequest = function(args, res, next) {
             }
 
         } else {
-            callback( null, inputParams, shouldRematch, deletableIds, matchesForOwners );
+            callback(null, inputParams, shouldRematch, deletableIds, matchesForOwners);
         }
 
     } //end _rematchAdjustMaterialVolumesToBothConfirmed
@@ -512,38 +505,35 @@ exports.updateRequest = function(args, res, next) {
      * @param callback
      * @private
      */
-    function _rematchAdjustMaterialVolumesAsSuggested( inputParams, shouldRematch, deletableIds, matchesForOwners, callback ) {
+    function _rematchAdjustMaterialVolumesAsSuggested(inputParams, shouldRematch, deletableIds, matchesForOwners, callback) {
+        if (shouldRematch) {
 
-        console.log("STEP 7: _rematchAdjustMaterialVolumesAsSuggested");
-
-        if ( shouldRematch ) {
-
-            if ( matchesForOwners.length > 0 ) {
+            if (matchesForOwners.length > 0) {
 
                 let materialVolumes = []
                     , ownRequestIds = [];
 
-                for ( let m = 0; m < matchesForOwners.length; m ++ ) {
+                for (let m = 0; m < matchesForOwners.length; m++) {
 
-                    deletableIds.push( matchesForOwners[m].id );
+                    deletableIds.push(matchesForOwners[m].id);
 
-                    if ( matchesForOwners[m].status === 3 ) {
-                        materialVolumes.push( matchesForOwners[m].material_volume );
-                        ownRequestIds.push( matchesForOwners[m].own_request_id );
+                    if (matchesForOwners[m].status === 3) {
+                        materialVolumes.push(matchesForOwners[m].material_volume);
+                        ownRequestIds.push(matchesForOwners[m].own_request_id);
                     }
                 } //end for
 
-                if ( materialVolumes.length > 0 && ownRequestIds.length > 0 ) {
+                if (materialVolumes.length > 0 && ownRequestIds.length > 0) {
 
                     let matchedVolumeCaseString = "(CASE "
                         , availableVolumeCaseString = "(CASE ";
 
-                    for ( let i = 0; i < materialVolumes.length; i ++ ) {
+                    for (let i = 0; i < materialVolumes.length; i++) {
 
                         matchedVolumeCaseString = matchedVolumeCaseString + "WHEN id = " + ownRequestIds[i] + " THEN matched_volume - " + materialVolumes[i] + " ";
                         availableVolumeCaseString = availableVolumeCaseString + "WHEN id = " + ownRequestIds[i] + " THEN available_volume + " + materialVolumes[i] + " ";
 
-                        if ( i === materialVolumes.length - 1 ) {
+                        if (i === materialVolumes.length - 1) {
 
                             matchedVolumeCaseString = matchedVolumeCaseString + "END)";
                             availableVolumeCaseString = availableVolumeCaseString + "END)";
@@ -564,15 +554,15 @@ exports.updateRequest = function(args, res, next) {
                     }
 
                 } else {
-                    callback( null, inputParams, shouldRematch, deletableIds, matchesForOwners );
+                    callback(null, inputParams, shouldRematch, deletableIds, matchesForOwners);
                 }
 
             } else {
-                callback( null, inputParams, shouldRematch, deletableIds, matchesForOwners );
+                callback(null, inputParams, shouldRematch, deletableIds, matchesForOwners);
             }
 
         } else {
-            callback( null, inputParams, shouldRematch, deletableIds, matchesForOwners );
+            callback(null, inputParams, shouldRematch, deletableIds, matchesForOwners);
         }
 
     } //end _rematchAdjustMaterialVolumesAsSuggested
@@ -587,15 +577,12 @@ exports.updateRequest = function(args, res, next) {
      * @param callback
      * @private
      */
-    function _rematchAdjustMaterialVolumesAsOwn( inputParams, shouldRematch, deletableIds, matchesForOwners, callback ) {
+    function _rematchAdjustMaterialVolumesAsOwn(inputParams, shouldRematch, deletableIds, matchesForOwners, callback) {
+        if (shouldRematch) {
 
-        console.log("STEP 8: _rematchAdjustMaterialVolumesAsOwn");
+            if (matchesForOwners.length > 0) {
 
-        if ( shouldRematch ) {
-
-            if ( matchesForOwners.length > 0 ) {
-
-                let joinSql  = "SELECT M.id, M.own_request_id, M.matched_request_id, M.status, S.material_volume " +
+                let joinSql = "SELECT M.id, M.own_request_id, M.matched_request_id, M.status, S.material_volume " +
                     "FROM matched_results M " +
                     "INNER JOIN matched_summaries AS S ON ( S.matched_result_id = M.id ) " +
                     "WHERE own_request_id IN(" + matchesForOwners.join() + ")";
@@ -604,32 +591,32 @@ exports.updateRequest = function(args, res, next) {
 
                     sql(joinSql).then(matches => {
 
-                        if ( matches.length > 0 ) {
+                        if (matches.length > 0) {
 
                             let materialVolumes = []
                                 , matchedRequestIds = [];
 
-                            for ( let m = 0; m < matches.length; m ++ ) {
+                            for (let m = 0; m < matches.length; m++) {
 
-                                deletableIds.push( matches[m].id );
+                                deletableIds.push(matches[m].id);
 
-                                if ( matches[m].status === 3 ) {
-                                    materialVolumes.push( matches[m].material_volume );
-                                    matchedRequestIds.push( matches[m].matched_request_id );
+                                if (matches[m].status === 3) {
+                                    materialVolumes.push(matches[m].material_volume);
+                                    matchedRequestIds.push(matches[m].matched_request_id);
                                 }
                             } //end for
 
-                            if ( materialVolumes.length > 0 && matchedRequestIds.length > 0 ) {
+                            if (materialVolumes.length > 0 && matchedRequestIds.length > 0) {
 
                                 let matchedVolumeCaseString = "(CASE "
                                     , availableVolumeCaseString = "(CASE ";
 
-                                for ( let i = 0; i < materialVolumes.length; i ++ ) {
+                                for (let i = 0; i < materialVolumes.length; i++) {
 
                                     matchedVolumeCaseString = matchedVolumeCaseString + "WHEN id = " + matchedRequestIds[i] + " THEN matched_volume - " + materialVolumes[i] + " ";
                                     availableVolumeCaseString = availableVolumeCaseString + "WHEN id = " + matchedRequestIds[i] + " THEN available_volume + " + materialVolumes[i] + " ";
 
-                                    if ( i === materialVolumes.length - 1 ) {
+                                    if (i === materialVolumes.length - 1) {
 
                                         matchedVolumeCaseString = matchedVolumeCaseString + "END)";
                                         availableVolumeCaseString = availableVolumeCaseString + "END)";
@@ -640,7 +627,7 @@ exports.updateRequest = function(args, res, next) {
 
                                 try {
                                     sql(updateSqlWithNewVolumes).then(updateSqlWithNewVolumes => {
-                                        callback( null, inputParams, shouldRematch, deletableIds );
+                                        callback(null, inputParams, shouldRematch, deletableIds);
                                     });
 
                                 } catch (updateSqlWithNewVolumesError) {
@@ -650,11 +637,11 @@ exports.updateRequest = function(args, res, next) {
                                 }
 
                             } else {
-                                callback( null, inputParams, shouldRematch, deletableIds );
+                                callback(null, inputParams, shouldRematch, deletableIds);
                             }
 
                         } else {
-                            callback( null, inputParams, shouldRematch, deletableIds );
+                            callback(null, inputParams, shouldRematch, deletableIds);
                         }
 
                     });
@@ -666,11 +653,11 @@ exports.updateRequest = function(args, res, next) {
                 }
 
             } else {
-                callback( null, inputParams, shouldRematch, deletableIds );
+                callback(null, inputParams, shouldRematch, deletableIds);
             }
 
         } else {
-            callback( null, inputParams, shouldRematch, deletableIds );
+            callback(null, inputParams, shouldRematch, deletableIds);
         }
 
     } //end _rematchAdjustMaterialVolumesAsOwn
@@ -684,11 +671,8 @@ exports.updateRequest = function(args, res, next) {
      * @param callback
      * @private
      */
-    function _rematchCollectOwnedRequests( inputParams, shouldRematch, deletableIds, callback ) {
-
-        console.log("STEP 9: _rematchCollectOwnedRequests");
-
-        if ( shouldRematch ) {
+    function _rematchCollectOwnedRequests(inputParams, shouldRematch, deletableIds, callback) {
+        if (shouldRematch) {
 
             let selectOwnersSql = "SELECT M.id, R1.id AS own_request_id, R1.request_type, R1.filling_purpose, R1.material_volume, R1.available_volume, R1.material_unit, MT.material_type, MT.material_quality, " +
                 "FORMAT(R1.schedule_start_date, 'yyyy-MM-dd') AS schedule_start_date, FORMAT(R1.schedule_end_date, 'yyyy-MM-dd') AS schedule_end_date, M.status " +
@@ -725,11 +709,8 @@ exports.updateRequest = function(args, res, next) {
      * @param callback
      * @private
      */
-    function _rematchAdjustMatchedResultsForOwnedRequests( inputParams, shouldRematch, deletableIds, owners, callback ) {
-
-        console.log("STEP 10: _rematchAdjustMatchedResultsForOwnedRequests");
-
-        if ( shouldRematch ) {
+    function _rematchAdjustMatchedResultsForOwnedRequests(inputParams, shouldRematch, deletableIds, owners, callback) {
+        if (shouldRematch) {
 
             let rematches = matching.isRematched(owners, inputParams)
                 , rematchedIds = []
@@ -743,9 +724,9 @@ exports.updateRequest = function(args, res, next) {
                 , materialVolumeScoreCaseString = "(CASE "
                 , updateTime = new Date().toISOString();
 
-            for ( let i = 0; i < rematches.length; i ++ ) {
+            for (let i = 0; i < rematches.length; i++) {
 
-                if ( rematches[i].filling_purpose_score > 0 && rematches[i].schedule_score > 0 && rematches[i].material_volume_score > 0 ) {
+                if (rematches[i].filling_purpose_score > 0 && rematches[i].schedule_score > 0 && rematches[i].material_volume_score > 0) {
 
                     rematchedIds.push(rematches[i].id);
 
@@ -753,8 +734,8 @@ exports.updateRequest = function(args, res, next) {
                     materialQualityCaseString = materialQualityCaseString + "WHEN matched_result_id = " + rematches[i].id + " THEN '" + rematches[i].material_quality + "' ";
                     materialVolumeCaseString = materialVolumeCaseString + "WHEN matched_result_id = " + rematches[i].id + " THEN " + rematches[i].material_volume + " ";
 
-                    let scheduleStartDate = new Date( rematches[i].overlapping_start_date ).toISOString()
-                        , scheduleEndDate = new Date( rematches[i].overlapping_end_date ).toISOString();
+                    let scheduleStartDate = new Date(rematches[i].overlapping_start_date).toISOString()
+                        , scheduleEndDate = new Date(rematches[i].overlapping_end_date).toISOString();
                     startDateCaseString = startDateCaseString + "WHEN matched_result_id = " + rematches[i].id + " THEN '" + scheduleStartDate + "' ";
                     endDateCaseString = endDateCaseString + "WHEN matched_result_id = " + rematches[i].id + " THEN '" + scheduleEndDate + "' ";
 
@@ -769,7 +750,7 @@ exports.updateRequest = function(args, res, next) {
             } //end for
 
 
-            if ( rematchedIds.length > 0 ) {
+            if (rematchedIds.length > 0) {
 
                 materialTypeCaseString = materialTypeCaseString + "END)";
                 materialQualityCaseString = materialQualityCaseString + "END)";
@@ -825,11 +806,8 @@ exports.updateRequest = function(args, res, next) {
      * @param callback
      * @private
      */
-    function _rematchRemoveAllMatches( inputParams, shouldRematch, deletableIds, callback ) {
-
-        console.log("STEP 11: _rematchRemoveAllMatches");
-
-        if ( shouldRematch !== false && deletableIds.length > 0 ) {
+    function _rematchRemoveAllMatches(inputParams, shouldRematch, deletableIds, callback) {
+        if (shouldRematch !== false && deletableIds.length > 0) {
 
             let ids = deletableIds.join();
             console.log(ids);
@@ -878,21 +856,18 @@ exports.updateRequest = function(args, res, next) {
      * @param callback
      * @private
      */
-    function _rematchWithFillingPurposeAndScheduleOverlap( inputParams, shouldRematch, callback ) {
-
-        console.log("STEP 12: _rematchWithFillingPurposeAndScheduleOverlap");
-
+    function _rematchWithFillingPurposeAndScheduleOverlap(inputParams, shouldRematch, callback) {
         let matchableRequestType = 0
             , matchableFillingPurpose = 0;
 
-        if ( inputParams.request_type === 'Disposal' || inputParams.request_type === 'Backfill' )
-            matchableRequestType = ( inputParams.request_type === 'Disposal' ) ? 2 : 1
+        if (inputParams.request_type === 'Disposal' || inputParams.request_type === 'Backfill')
+            matchableRequestType = (inputParams.request_type === 'Disposal') ? 2 : 1
 
-        if ( inputParams.request_type === 1 || inputParams.request_type === 2 )
-            matchableRequestType = ( inputParams.request_type === 1 ) ? 2 : 1
+        if (inputParams.request_type === 1 || inputParams.request_type === 2)
+            matchableRequestType = (inputParams.request_type === 1) ? 2 : 1
 
-        if ( inputParams.filling_purpose === 'Permanent' || inputParams.filling_purpose === 'Temporary' )
-            matchableFillingPurpose = ( inputParams.filling_purpose === 'Permanent' ) ? 1 : 2;
+        if (inputParams.filling_purpose === 'Permanent' || inputParams.filling_purpose === 'Temporary')
+            matchableFillingPurpose = (inputParams.filling_purpose === 'Permanent') ? 1 : 2;
         else
             matchableFillingPurpose = inputParams.filling_purpose;
 
@@ -904,7 +879,7 @@ exports.updateRequest = function(args, res, next) {
             , matchesForScheduleOverlaps = []
             , requestId = inputParams.id;
 
-        if ( shouldRematch ) {
+        if (shouldRematch) {
 
             let selectSql = "DECLARE @FromDate datetime = @startDate;" +
                 "DECLARE @ToDate datetime = @endDate;" +
@@ -939,17 +914,17 @@ exports.updateRequest = function(args, res, next) {
 
                     if (n > 0) {
 
-                        for ( let i = 0; i < n; i ++ ) {
+                        for (let i = 0; i < n; i++) {
 
-                            if ( matchResult[i].total_overlap_period > 0 ) {
+                            if (matchResult[i].total_overlap_period > 0) {
 
-                                let scheduleDates = matching.getDatesBetweenDates( matchResult[i].schedule_start_date, matchResult[i].schedule_end_date );
+                                let scheduleDates = matching.getDatesBetweenDates(matchResult[i].schedule_start_date, matchResult[i].schedule_end_date);
 
                                 matchesForScheduleOverlaps.push({
                                     "id": matchResult[i].id,
                                     "request_type": matchResult[i].request_type,
                                     "filling_purpose": matchResult[i].filling_purpose,
-                                    "overlapping_dates": matching.getOverlappingDates( scheduleDates, datesWithinTargetSchedule ),
+                                    "overlapping_dates": matching.getOverlappingDates(scheduleDates, datesWithinTargetSchedule),
                                     "address": matchResult[i].project_address,
                                     "material_type": matchResult[i].material_type,
                                     "material_quality": matchResult[i].material_quality,
@@ -957,7 +932,7 @@ exports.updateRequest = function(args, res, next) {
                                     "available_volume": matchResult[i].available_volume,
                                     "material_unit": matchResult[i].material_unit,
                                     "filling_purpose_score": matchResult[i].filling_purpose_score,
-                                    "schedule_score": parseFloat( matchResult[i].total_overlap_period / matchResult[i].total_own_period ).toFixed(2)
+                                    "schedule_score": parseFloat(matchResult[i].total_overlap_period / matchResult[i].total_own_period).toFixed(2)
                                 });
 
                             } //end if
@@ -965,7 +940,7 @@ exports.updateRequest = function(args, res, next) {
                         } //end for
                     }  //end if
 
-                    callback( null, requestId, inputParams, shouldRematch, matchableRequestType, matchableFillingPurpose, matchesForScheduleOverlaps );
+                    callback(null, requestId, inputParams, shouldRematch, matchableRequestType, matchableFillingPurpose, matchesForScheduleOverlaps);
                 });
 
             } catch (selectError) {
@@ -975,7 +950,7 @@ exports.updateRequest = function(args, res, next) {
             }
 
         } else {
-            callback( null, requestId, inputParams, shouldRematch, matchableRequestType, matchableFillingPurpose, matchesForScheduleOverlaps );
+            callback(null, requestId, inputParams, shouldRematch, matchableRequestType, matchableFillingPurpose, matchesForScheduleOverlaps);
         }
 
     } //end _rematchWithFillingPurposeAndScheduleOverlap
@@ -992,21 +967,18 @@ exports.updateRequest = function(args, res, next) {
      * @param callback
      * @private
      */
-    function _rematchWithMaterialTypeAndQuality( requestId, inputParams, shouldRematch, matchableRequestType, matchableFillingPurpose, matchesForScheduleOverlaps, callback ) {
-
-        console.log("STEP 13: _rematchWithMaterialTypeAndQuality");
-
+    function _rematchWithMaterialTypeAndQuality(requestId, inputParams, shouldRematch, matchableRequestType, matchableFillingPurpose, matchesForScheduleOverlaps, callback) {
         let matchesForMaterialTypeAndQuality = [];
 
-        if ( shouldRematch ) {
+        if (shouldRematch) {
 
-            if ( matchesForScheduleOverlaps.length > 0 ) {
+            if (matchesForScheduleOverlaps.length > 0) {
 
-                for ( let i = 0; i < matchesForScheduleOverlaps.length; i ++ ) {
+                for (let i = 0; i < matchesForScheduleOverlaps.length; i++) {
 
                     let materialMatchingDetails = matching.isMaterialMatched(matchableRequestType, inputParams, matchesForScheduleOverlaps[i]);
 
-                    if ( materialMatchingDetails.material_matched ) {
+                    if (materialMatchingDetails.material_matched) {
 
                         matchesForMaterialTypeAndQuality.push({
                             "id": matchesForScheduleOverlaps[i].id,
@@ -1027,10 +999,10 @@ exports.updateRequest = function(args, res, next) {
                 } //end for
             } //end main if
 
-            callback( null, requestId, inputParams, shouldRematch, matchableRequestType, matchableFillingPurpose, matchesForMaterialTypeAndQuality );
+            callback(null, requestId, inputParams, shouldRematch, matchableRequestType, matchableFillingPurpose, matchesForMaterialTypeAndQuality);
 
         } else {
-            callback( null, requestId, inputParams, shouldRematch, matchableRequestType, matchableFillingPurpose, matchesForMaterialTypeAndQuality );
+            callback(null, requestId, inputParams, shouldRematch, matchableRequestType, matchableFillingPurpose, matchesForMaterialTypeAndQuality);
         }
 
     } //end _rematchWithMaterialTypeAndQuality
@@ -1047,17 +1019,14 @@ exports.updateRequest = function(args, res, next) {
      * @param callback
      * @private
      */
-    function _rematchWithMaterialVolume( requestId, inputParams, shouldRematch, matchableRequestType, matchableFillingPurpose, matchesForMaterialTypeAndQuality, callback ) {
-
-        console.log("STEP 14: _rematchWithMaterialVolume");
-
+    function _rematchWithMaterialVolume(requestId, inputParams, shouldRematch, matchableRequestType, matchableFillingPurpose, matchesForMaterialTypeAndQuality, callback) {
         let matchesForMaterialVolume = [];
 
-        if ( shouldRematch ) {
+        if (shouldRematch) {
 
-            if ( matchesForMaterialTypeAndQuality.length > 0 ) {
+            if (matchesForMaterialTypeAndQuality.length > 0) {
 
-                for ( let i = 0; i < matchesForMaterialTypeAndQuality.length; i ++ ) {
+                for (let i = 0; i < matchesForMaterialTypeAndQuality.length; i++) {
 
                     matchesForMaterialVolume.push({
                         "id": matchesForMaterialTypeAndQuality[i].id,
@@ -1071,19 +1040,19 @@ exports.updateRequest = function(args, res, next) {
                         "material_volume": matchesForMaterialTypeAndQuality[i].material_volume,
                         "material_unit": matchesForMaterialTypeAndQuality[i].material_unit,
                         "material_volume_score": (
-                            matchesForMaterialTypeAndQuality[i].available_volume > inputParams.available_volume  ) ? 1 : (
-                            matchesForMaterialTypeAndQuality[i].available_volume / inputParams.available_volume )
-                            .toFixed(2)
+                            matchesForMaterialTypeAndQuality[i].available_volume > inputParams.available_volume) ? 1 : (
+                                matchesForMaterialTypeAndQuality[i].available_volume / inputParams.available_volume)
+                                .toFixed(2)
                     });
 
                 } //end for
 
             } //end main if
 
-            callback( null, requestId, inputParams, shouldRematch, matchableRequestType, matchableFillingPurpose, matchesForMaterialVolume );
+            callback(null, requestId, inputParams, shouldRematch, matchableRequestType, matchableFillingPurpose, matchesForMaterialVolume);
 
         } else {
-            callback( null, requestId, inputParams, shouldRematch, matchableRequestType, matchableFillingPurpose, matchesForMaterialVolume );
+            callback(null, requestId, inputParams, shouldRematch, matchableRequestType, matchableFillingPurpose, matchesForMaterialVolume);
         }
 
     } //end _rematchWithMaterialVolume
@@ -1100,22 +1069,19 @@ exports.updateRequest = function(args, res, next) {
      * @param callback
      * @private
      */
-    function _rematchWithLocation( requestId, inputParams, shouldRematch, matchableRequestType, matchableFillingPurpose, matchesForMaterialVolume, callback ) {
-
-        console.log("STEP 15: _rematchWithLocation");
-
+    function _rematchWithLocation(requestId, inputParams, shouldRematch, matchableRequestType, matchableFillingPurpose, matchesForMaterialVolume, callback) {
         let finalMatches = [];
 
-        if ( shouldRematch ) {
+        if (shouldRematch) {
 
-            if ( matchesForMaterialVolume.length > 0 ) {
+            if (matchesForMaterialVolume.length > 0) {
 
                 let distance = require('google-distance-matrix')
                     , origins = [inputParams.project_address]
                     , destinations = []
                     , distancesInKm = [];
 
-                for ( let i = 0; i < matchesForMaterialVolume.length; i ++ ) {
+                for (let i = 0; i < matchesForMaterialVolume.length; i++) {
                     destinations.push(matchesForMaterialVolume[i].address);
                 }
 
@@ -1126,18 +1092,18 @@ exports.updateRequest = function(args, res, next) {
                     if (distanceError) {
                         //console.log(distanceError);
                         //console.log("DISTANCE ERROR: ", JSON.stringify(distanceError, null, 2));
-                        callback( null, requestId, inputParams, shouldRematch, finalMatches );
+                        callback(null, requestId, inputParams, shouldRematch, finalMatches);
                     }
 
-                    if(!distances) {
+                    if (!distances) {
 
                         //console.log('no distances');
-                        callback( null, requestId, inputParams, shouldRematch, finalMatches );
+                        callback(null, requestId, inputParams, shouldRematch, finalMatches);
                     }
 
                     if (distances.status === 'OK') {
 
-                        for (let i=0; i < origins.length; i++) {
+                        for (let i = 0; i < origins.length; i++) {
 
                             for (let j = 0; j < destinations.length; j++) {
 
@@ -1157,7 +1123,7 @@ exports.updateRequest = function(args, res, next) {
                         } //end for
                     } //end if
 
-                    for ( let i = 0; i < matchesForMaterialVolume.length; i ++ ) {
+                    for (let i = 0; i < matchesForMaterialVolume.length; i++) {
 
                         let locationScore = matching.getLocationScoreByDistanceInKm(distancesInKm[i]);
 
@@ -1177,21 +1143,21 @@ exports.updateRequest = function(args, res, next) {
                                 "material_volume": matchesForMaterialVolume[i].material_volume,
                                 "material_unit": matchesForMaterialVolume[i].material_unit,
                                 "schedule_start_date": overlappingDates[0],
-                                "schedule_end_date": overlappingDates[ numOfOverlapping-1 ]
+                                "schedule_end_date": overlappingDates[numOfOverlapping - 1]
                             }
                         });
 
                     } //end for
 
-                    callback( null, requestId, inputParams, shouldRematch, finalMatches );
+                    callback(null, requestId, inputParams, shouldRematch, finalMatches);
                 });
 
             } else {
-                callback( null, requestId, inputParams, shouldRematch, finalMatches );
+                callback(null, requestId, inputParams, shouldRematch, finalMatches);
             }
 
         } else {
-            callback( null, requestId, inputParams, shouldRematch, [] );
+            callback(null, requestId, inputParams, shouldRematch, []);
         }
 
     } //end _rematchWithLocation
@@ -1206,23 +1172,20 @@ exports.updateRequest = function(args, res, next) {
      * @param callback
      * @private
      */
-    function _saveReMatches( requestId, inputParams, shouldRematch, matches, callback ) {
-
-        console.log("STEP 16: _saveReMatches");
-
-        if ( shouldRematch ) {
+    function _saveReMatches(requestId, inputParams, shouldRematch, matches, callback) {
+        if (shouldRematch) {
 
             let n = matches.length;
 
-            if ( n > 0 ) {
+            if (n > 0) {
 
                 let insertData = '';
 
-                for ( let i = 0; i < n; i ++ ) {
+                for (let i = 0; i < n; i++) {
 
                     let currentTime = new Date().toISOString();
 
-                    if ( i === 0 )
+                    if (i === 0)
                         insertData = "(" + requestId + ", " + matches[i].id + ", " + matches[i].filling_purpose_score + ", " + parseFloat(matches[i].schedule_score) + ", " + matches[i].material_volume_score + ", " + matches[i].location_score + ", '" + currentTime + "', 0)";
                     else
                         insertData = insertData + ", (" + requestId + ", " + matches[i].id + ", " + matches[i].filling_purpose_score + ", " + parseFloat(matches[i].schedule_score) + ", " + matches[i].material_volume_score + ", " + matches[i].location_score + ", '" + currentTime + "', 0)";
@@ -1237,19 +1200,19 @@ exports.updateRequest = function(args, res, next) {
                             sql("SELECT id FROM matched_results WHERE own_request_id = @requestId", { requestId: requestId }).then(matchedResult => {
 
                                 let matchedResultIds = [];
-                                for( let m = 0; m < matchedResult.length; m++ ) {
+                                for (let m = 0; m < matchedResult.length; m++) {
                                     matchedResultIds.push(matchedResult[m].id);
                                 }
 
                                 let insertSummaryData = '';
 
-                                for ( let i = 0; i < matchedResultIds.length; i ++ ) {
+                                for (let i = 0; i < matchedResultIds.length; i++) {
 
                                     let currentTime = new Date().toISOString()
-                                        , scheduleStartDate = new Date( matches[i].matching_summary.schedule_start_date ).toISOString()
-                                        , scheduleEndDate = new Date( matches[i].matching_summary.schedule_end_date ).toISOString();
+                                        , scheduleStartDate = new Date(matches[i].matching_summary.schedule_start_date).toISOString()
+                                        , scheduleEndDate = new Date(matches[i].matching_summary.schedule_end_date).toISOString();
 
-                                    if ( i === 0 )
+                                    if (i === 0)
                                         insertSummaryData = "(" + matchedResultIds[i] + ", " + matches[i].matching_summary.filling_purpose + ", '" + matches[i].matching_summary.material_type + "', '" + matches[i].matching_summary.material_quality + "', " + matches[i].matching_summary.material_volume + ", '" + matches[i].matching_summary.material_unit + "', '" + scheduleStartDate + "', '" + scheduleEndDate + "', '" + currentTime + "')";
                                     else
                                         insertSummaryData = insertSummaryData + ", (" + matchedResultIds[i] + ", " + matches[i].matching_summary.filling_purpose + ", '" + matches[i].matching_summary.material_type + "', '" + matches[i].matching_summary.material_quality + "', " + matches[i].matching_summary.material_volume + ", '" + matches[i].matching_summary.material_unit + "', '" + scheduleStartDate + "', '" + scheduleEndDate + "', '" + currentTime + "')";
@@ -1259,32 +1222,32 @@ exports.updateRequest = function(args, res, next) {
 
                                 try {
                                     sql(matchedSummaryInsertSqlQuery).then(matchedSummaryInsert => {
-                                        callback( null, requestId, inputParams, shouldRematch, matches );
+                                        callback(null, requestId, inputParams, shouldRematch, matches);
                                     });
                                 } catch (insertSummaryError) {
 
                                     console.log(insertSummaryError);
-                                    callback( insertSummaryError );
+                                    callback(insertSummaryError);
                                 }
                             });
                         } catch (matchedResultError) {
 
                             console.log(matchedResultError);
-                            callback( matchedResultError );
+                            callback(matchedResultError);
                         } //end of select query
 
                     }); //end of matchedResultInsertSqlQuery
                 } catch (matchedResultInsertError) {
                     console.log(matchedResultInsertError);
-                    callback( matchedResultInsertError );
+                    callback(matchedResultInsertError);
                 }
 
             } else {
-                callback( null, requestId, inputParams, shouldRematch, matches );
+                callback(null, requestId, inputParams, shouldRematch, matches);
             }
 
         } else {
-            callback( null, requestId, inputParams, shouldRematch, matches );
+            callback(null, requestId, inputParams, shouldRematch, matches);
         }
 
     } //end _saveReMatches
@@ -1299,25 +1262,22 @@ exports.updateRequest = function(args, res, next) {
      * @param callback
      * @private
      */
-    function _saveOtherSideReMatches( requestId, inputParams, shouldRematch, matches, callback ) {
-
-        console.log("STEP 17: _saveOtherSideReMatches");
-
-        if ( shouldRematch ) {
+    function _saveOtherSideReMatches(requestId, inputParams, shouldRematch, matches, callback) {
+        if (shouldRematch) {
 
             let n = matches.length
-            , matchedIds = [];
+                , matchedIds = [];
 
-            if ( n > 0 ) {
+            if (n > 0) {
 
                 let insertData = '';
 
-                for ( let i = 0; i < n; i ++ ) {
+                for (let i = 0; i < n; i++) {
 
                     let currentTime = new Date().toISOString();
                     matchedIds.push(matches[i].id);
 
-                    if ( i === 0 )
+                    if (i === 0)
                         insertData = "(" + matches[i].id + ", " + requestId + ", " + matches[i].filling_purpose_score + ", " + parseFloat(matches[i].schedule_score) + ", " + matches[i].material_volume_score + ", " + matches[i].location_score + ", '" + currentTime + "', 0)";
                     else
                         insertData = insertData + ", (" + matches[i].id + ", " + requestId + ", " + matches[i].filling_purpose_score + ", " + parseFloat(matches[i].schedule_score) + ", " + matches[i].material_volume_score + ", " + matches[i].location_score + ", '" + currentTime + "', 0)";
@@ -1333,13 +1293,13 @@ exports.updateRequest = function(args, res, next) {
 
                                 let insertSummaryData = '';
 
-                                for ( let m = 0; m < matchedResult.length; m ++ ) {
+                                for (let m = 0; m < matchedResult.length; m++) {
 
                                     let currentTime = new Date().toISOString()
-                                        , scheduleStartDate = new Date( matches[m].matching_summary.schedule_start_date ).toISOString()
-                                        , scheduleEndDate = new Date( matches[m].matching_summary.schedule_end_date ).toISOString();
+                                        , scheduleStartDate = new Date(matches[m].matching_summary.schedule_start_date).toISOString()
+                                        , scheduleEndDate = new Date(matches[m].matching_summary.schedule_end_date).toISOString();
 
-                                    if ( m === 0 )
+                                    if (m === 0)
                                         insertSummaryData = "(" + matchedResult[m].id + ", " + matches[m].matching_summary.filling_purpose + ", '" + matches[m].matching_summary.material_type + "', '" + matches[m].matching_summary.material_quality + "', " + matches[m].matching_summary.material_volume + ", '" + matches[m].matching_summary.material_unit + "', '" + scheduleStartDate + "', '" + scheduleEndDate + "', '" + currentTime + "')";
                                     else
                                         insertSummaryData = insertSummaryData + ", (" + matchedResult[m].id + ", " + matches[m].matching_summary.filling_purpose + ", '" + matches[m].matching_summary.material_type + "', '" + matches[m].matching_summary.material_quality + "', " + matches[m].matching_summary.material_volume + ", '" + matches[m].matching_summary.material_unit + "', '" + scheduleStartDate + "', '" + scheduleEndDate + "', '" + currentTime + "')";
@@ -1349,32 +1309,32 @@ exports.updateRequest = function(args, res, next) {
 
                                 try {
                                     sql(matchedSummaryInsertSqlQuery).then(matchedSummaryInsert => {
-                                        callback( null, true );
+                                        callback(null, true);
                                     });
                                 } catch (insertSummaryError) {
 
                                     console.log(insertSummaryError);
-                                    callback( insertSummaryError );
+                                    callback(insertSummaryError);
                                 }
                             });
                         } catch (matchedResultError) {
 
                             console.log(matchedResultError);
-                            callback( matchedResultError );
+                            callback(matchedResultError);
                         } //end of select query
 
                     }); //end of matchedResultInsertSqlQuery
                 } catch (matchedResultInsertError) {
                     console.log(matchedResultInsertError);
-                    callback( matchedResultInsertError );
+                    callback(matchedResultInsertError);
                 }
 
             } else {
-                callback( null, true );
+                callback(null, true);
             }
 
         } else {
-            callback( null, true );
+            callback(null, true);
         }
 
     } //end _saveOtherSideReMatches

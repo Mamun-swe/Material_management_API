@@ -1,21 +1,34 @@
 require("dotenv").config();
 
 const sql = require("../../config/sql")
-    , messages = require("../../config/constant")
-    , async = require('async')
-    , matching = require('../helpers/matching')
-    , apiKey = process.env.GOOGLE_API_KEY;
-const distance = require("google-distance-matrix");
+const messages = require("../../config/constant")
+const async = require('async')
+const matching = require('../helpers/matching')
+const apiKey = process.env.GOOGLE_API_KEY
+const distance = require("google-distance-matrix")
+const auth = require("../helpers/auth")
 
 
 /* Create a Backfil/Disposal Request */
-exports.createRequest = function(args, res, next) {
+exports.createRequest = async (args, res, next) => {
+    if (!args.headers.authorization) {
+        return res.status(404).json({
+            message: messages.TOKEN_IS_EMPTY
+        })
+    }
+
+    const verifiedHeader = await auth.isValidToken(args.headers)
+    if (!verifiedHeader) {
+        return res.status(501).json({
+            message: messages.INVALID_TOKEN
+        })
+    }
 
     let inputParams = args.body;
 
     //START TESTING
-    let matchableRequestType = ( inputParams.request_type === 'Disposal' ) ? 2 : 1
-        , matchableFillingPurpose = ( inputParams.filling_purpose === 'Permanent' ) ? 1 : 2
+    let matchableRequestType = (inputParams.request_type === 'Disposal') ? 2 : 1
+        , matchableFillingPurpose = (inputParams.filling_purpose === 'Permanent') ? 1 : 2
         , startDate = inputParams.schedule_start_date
         , endDate = inputParams.schedule_end_date
         , datesWithinTargetSchedule = matching.getDatesBetweenDates(startDate, endDate)
@@ -52,17 +65,17 @@ exports.createRequest = function(args, res, next) {
 
                 let matchesForScheduleOverlaps = [];
 
-                for ( let i = 0; i < n; i ++ ) {
+                for (let i = 0; i < n; i++) {
 
-                    if ( matchResult[i].total_overlap_period > 0 ) {
+                    if (matchResult[i].total_overlap_period > 0) {
 
-                        let scheduleDates = matching.getDatesBetweenDates( matchResult[i].schedule_start_date, matchResult[i].schedule_end_date );
+                        let scheduleDates = matching.getDatesBetweenDates(matchResult[i].schedule_start_date, matchResult[i].schedule_end_date);
 
                         matchesForScheduleOverlaps.push({
                             "id": matchResult[i].id,
                             "request_type": matchResult[i].request_type,
                             "filling_purpose": matchResult[i].filling_purpose,
-                            "overlapping_dates": matching.getOverlappingDates( scheduleDates, datesWithinTargetSchedule ),
+                            "overlapping_dates": matching.getOverlappingDates(scheduleDates, datesWithinTargetSchedule),
                             "address": matchResult[i].project_address,
                             "material_type": matchResult[i].material_type,
                             "material_quality": matchResult[i].material_quality,
@@ -70,7 +83,7 @@ exports.createRequest = function(args, res, next) {
                             "available_volume": matchResult[i].available_volume,
                             "material_unit": materialUnit,
                             "filling_purpose_score": matchResult[i].filling_purpose_score,
-                            "schedule_score": parseFloat( matchResult[i].total_overlap_period / matchResult[i].total_own_period ).toFixed(2)
+                            "schedule_score": parseFloat(matchResult[i].total_overlap_period / matchResult[i].total_own_period).toFixed(2)
                         });
 
                     } //end if
@@ -79,17 +92,17 @@ exports.createRequest = function(args, res, next) {
 
                 let matchesForMaterialTypeAndQuality = [];
 
-                for ( let i = 0; i < matchesForScheduleOverlaps.length; i ++ ) {
+                for (let i = 0; i < matchesForScheduleOverlaps.length; i++) {
 
                     let materialMatched = false
                         , matchedMaterialTypes = ''
                         , matchedMaterialQuality = '';
 
-                    if ( matchesForScheduleOverlaps[i].request_type === matchableRequestType ) {
+                    if (matchesForScheduleOverlaps[i].request_type === matchableRequestType) {
 
-                        if ( matchesForScheduleOverlaps[i].filling_purpose === 1 ) { //Permanent
+                        if (matchesForScheduleOverlaps[i].filling_purpose === 1) { //Permanent
 
-                            if ( inputParams.material_type === matchesForScheduleOverlaps[i].material_type ) {
+                            if (inputParams.material_type === matchesForScheduleOverlaps[i].material_type) {
 
                                 materialMatched = true;
                                 matchedMaterialTypes = matchesForScheduleOverlaps[i].material_type;
@@ -98,8 +111,8 @@ exports.createRequest = function(args, res, next) {
                             if (
                                 inputParams.hasOwnProperty('material_quality') &&
                                 matchesForScheduleOverlaps[i].hasOwnProperty('material_quality') &&
-                                ( inputParams.material_type === matchesForScheduleOverlaps[i].material_type ) &&
-                                ( (inputParams.material_type !== 'Broken Concrete') && (inputParams.material_quality === matchesForScheduleOverlaps[i].material_quality) )
+                                (inputParams.material_type === matchesForScheduleOverlaps[i].material_type) &&
+                                ((inputParams.material_type !== 'Broken Concrete') && (inputParams.material_quality === matchesForScheduleOverlaps[i].material_quality))
                             ) {
 
                                 materialMatched = true;
@@ -114,7 +127,7 @@ exports.createRequest = function(args, res, next) {
                                 matchesForScheduleOverlaps[i].material_type
                             );
 
-                            if ( materialMatched ) {
+                            if (materialMatched) {
 
                                 matchedMaterialTypes = matching.matchesBetweenStrings(
                                     inputParams.material_type,
@@ -126,8 +139,8 @@ exports.createRequest = function(args, res, next) {
                             if (
                                 inputParams.hasOwnProperty('material_quality') &&
                                 matchesForScheduleOverlaps[i].hasOwnProperty('material_quality') &&
-                                ( inputParams.material_type === matchesForScheduleOverlaps[i].material_type ) &&
-                                ( (inputParams.material_type !== 'Broken Concrete') && (inputParams.material_quality === matchesForScheduleOverlaps[i].material_quality) )
+                                (inputParams.material_type === matchesForScheduleOverlaps[i].material_type) &&
+                                ((inputParams.material_type !== 'Broken Concrete') && (inputParams.material_quality === matchesForScheduleOverlaps[i].material_quality))
                             ) {
 
                                 materialMatched = true;
@@ -138,7 +151,7 @@ exports.createRequest = function(args, res, next) {
 
                     } //end if
 
-                    if ( materialMatched ) {
+                    if (materialMatched) {
 
                         matchesForMaterialTypeAndQuality.push({
                             "id": matchesForScheduleOverlaps[i].id,
@@ -159,7 +172,7 @@ exports.createRequest = function(args, res, next) {
 
                 let matchesForMaterialVolume = [];
 
-                for ( let i = 0; i < matchesForMaterialTypeAndQuality.length; i ++ ) {
+                for (let i = 0; i < matchesForMaterialTypeAndQuality.length; i++) {
 
                     matchesForMaterialVolume.push({
                         "id": matchesForMaterialTypeAndQuality[i].id,
@@ -173,9 +186,9 @@ exports.createRequest = function(args, res, next) {
                         "material_volume": matchesForMaterialTypeAndQuality[i].material_volume,
                         "material_unit": matchesForMaterialTypeAndQuality[i].material_unit,
                         "material_volume_score": (
-                            matchesForMaterialTypeAndQuality[i].available_volume > inputParams.available_volume  ) ? 1 : (
-                            matchesForMaterialTypeAndQuality[i].available_volume / inputParams.available_volume )
-                            .toFixed(2)
+                            matchesForMaterialTypeAndQuality[i].available_volume > inputParams.available_volume) ? 1 : (
+                                matchesForMaterialTypeAndQuality[i].available_volume / inputParams.available_volume)
+                                .toFixed(2)
                     });
 
                 } //end for
@@ -199,7 +212,7 @@ exports.createRequest = function(args, res, next) {
                     , distancesInKm = []
                     , finalMatches = [];
 
-                for ( let i = 0; i < matchesForMaterialVolume.length; i ++ ) {
+                for (let i = 0; i < matchesForMaterialVolume.length; i++) {
                     destinations.push(matchesForMaterialVolume[i].address);
                 }
 
@@ -211,13 +224,13 @@ exports.createRequest = function(args, res, next) {
                         console.log(err);
                     }
 
-                    if(!distances) {
+                    if (!distances) {
                         console.log('no distances');
                     }
 
                     if (distances.status === 'OK') {
 
-                        for (let i=0; i < origins.length; i++) {
+                        for (let i = 0; i < origins.length; i++) {
 
                             for (let j = 0; j < destinations.length; j++) {
 
@@ -241,28 +254,28 @@ exports.createRequest = function(args, res, next) {
                     }
 
                     console.log(distancesInKm);
-                    for ( let i = 0; i < matchesForMaterialVolume.length; i ++ ) {
+                    for (let i = 0; i < matchesForMaterialVolume.length; i++) {
 
                         let locationScore = 0.00
                             , distanceInKm = parseFloat(distancesInKm[i]);
 
-                        if ( distanceInKm <= 5 )
+                        if (distanceInKm <= 5)
                             locationScore = 1;
-                        else if ( distanceInKm <= 10 )
+                        else if (distanceInKm <= 10)
                             locationScore = 0.9;
-                        else if ( distanceInKm <= 15 )
+                        else if (distanceInKm <= 15)
                             locationScore = 0.8;
-                        else if ( distanceInKm <= 20 )
+                        else if (distanceInKm <= 20)
                             locationScore = 0.7;
-                        else if ( distanceInKm <= 25 )
+                        else if (distanceInKm <= 25)
                             locationScore = 0.6;
-                        else if ( distanceInKm <= 30 )
+                        else if (distanceInKm <= 30)
                             locationScore = 0.5;
-                        else if ( distanceInKm <= 35 )
+                        else if (distanceInKm <= 35)
                             locationScore = 0.4;
-                        else if ( distanceInKm <= 40 )
+                        else if (distanceInKm <= 40)
                             locationScore = 0.3;
-                        else if ( distanceInKm <= 45 )
+                        else if (distanceInKm <= 45)
                             locationScore = 0.2;
                         else
                             locationScore = 0.1;
@@ -283,7 +296,7 @@ exports.createRequest = function(args, res, next) {
                                 "material_volume": matchesForMaterialVolume[i].material_volume,
                                 "material_unit": matchesForMaterialVolume[i].material_unit,
                                 "schedule_start_date": overlappingDates[0],
-                                "schedule_end_date": overlappingDates[ numofOverlapping-1 ]
+                                "schedule_end_date": overlappingDates[numofOverlapping - 1]
                             }
                         });
 
@@ -358,22 +371,22 @@ exports.createRequest = function(args, res, next) {
      * @param {object} inputParams
      * @return {object}
      */
-    function _saveRequestBasic( inputParams ) {
+    function _saveRequestBasic(inputParams) {
 
         console.log("SETP 1: _saveRequestBasic");
 
-        return function ( callback ) {
+        return function (callback) {
 
             let
-                requestType = ( inputParams.request_type == 'Disposal' ) ? 1 : 2
-                , fillingPurpose = ( inputParams.filling_purpose == 'Permanent' ) ? 1 : 2
-                , scheduleStatus = ( inputParams.schedule_status == 'Confirmed' ) ? 1 : 2
-                , scheduleStartDate = new Date( inputParams.schedule_start_date )
-                , scheduleEndDate = new Date( inputParams.schedule_end_date )
+                requestType = (inputParams.request_type == 'Disposal') ? 1 : 2
+                , fillingPurpose = (inputParams.filling_purpose == 'Permanent') ? 1 : 2
+                , scheduleStatus = (inputParams.schedule_status == 'Confirmed') ? 1 : 2
+                , scheduleStartDate = new Date(inputParams.schedule_start_date)
+                , scheduleEndDate = new Date(inputParams.schedule_end_date)
                 , currentTime = new Date().toISOString()
                 , basicSaved = false
                 , idObtained = false
-            ;
+                ;
 
             var requestId;
 
@@ -397,30 +410,30 @@ exports.createRequest = function(args, res, next) {
 
                     }).then(basicInsertionResult => {
 
-                    basicSaved = true;
+                        basicSaved = true;
 
-                    try {
-                        sql(
-                            "SELECT id FROM requests ORDER BY id DESC OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY").then(selectRequestIdResult => {
+                        try {
+                            sql(
+                                "SELECT id FROM requests ORDER BY id DESC OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY").then(selectRequestIdResult => {
 
-                            requestId = selectRequestIdResult[0].id;
-                            idObtained = true;
+                                    requestId = selectRequestIdResult[0].id;
+                                    idObtained = true;
 
-                            callback( null, requestId, inputParams );
+                                    callback(null, requestId, inputParams);
 
-                        });
-                    } catch (selectRequestIdError) {
+                                });
+                        } catch (selectRequestIdError) {
 
-                        console.log("SELECT REQUEST ID ERROR:", JSON.stringify(selectRequestIdError, null, 2));
-                        callback( selectRequestIdError );
+                            console.log("SELECT REQUEST ID ERROR:", JSON.stringify(selectRequestIdError, null, 2));
+                            callback(selectRequestIdError);
 
-                    }
+                        }
 
-                });
+                    });
             } catch (basicInsertionSqlError) {
 
                 console.log("BASIC INSERTION ERROR:", JSON.stringify(basicInsertionSqlError, null, 2));
-                callback( basicInsertionSqlError );
+                callback(basicInsertionSqlError);
 
             }
 
@@ -439,14 +452,14 @@ exports.createRequest = function(args, res, next) {
      *
      * @return {object}
      */
-    function _saveMaterials( requestId, inputParams, callback ) {
+    function _saveMaterials(requestId, inputParams, callback) {
 
         console.log("SETP 2: _saveMaterials");
 
         let
             materialType = inputParams.material_type
-            , materialQuality = ( materialType == 'Broken Concrete' ) ? '' : inputParams.material_quality
-        ;
+            , materialQuality = (materialType == 'Broken Concrete') ? '' : inputParams.material_quality
+            ;
 
         try {
             sql(
@@ -457,13 +470,13 @@ exports.createRequest = function(args, res, next) {
                     materialQuality: materialQuality
                 }).then(materialInsertionResult => {
 
-                callback( null, requestId, inputParams );
+                    callback(null, requestId, inputParams);
 
-            });
+                });
         } catch (materialInsertionError) {
 
             console.log("MATERIAL INSERTION ERROR:", JSON.stringify(materialInsertionError, null, 2));
-            callback( materialInsertionError );
+            callback(materialInsertionError);
 
         }
 
@@ -480,13 +493,13 @@ exports.createRequest = function(args, res, next) {
      *
      * @return {object}
      */
-    function _saveSupplementaryDocuments( requestId, inputParams, callback ) {
+    function _saveSupplementaryDocuments(requestId, inputParams, callback) {
 
         console.log("SETP 3: _saveSupplementaryDocuments");
 
-        if ( inputParams.supplementary_documents == '' ) {
+        if (inputParams.supplementary_documents == '') {
 
-            callback( null, requestId, inputParams );
+            callback(null, requestId, inputParams);
 
         } else {
 
@@ -497,11 +510,11 @@ exports.createRequest = function(args, res, next) {
                 , documents = docs.split(',')
                 , n = documents.length
                 , insertData = ''
-            ;
+                ;
 
-            for ( var i = 0; i < n; i ++ ) {
+            for (var i = 0; i < n; i++) {
 
-                if ( i == 0 )
+                if (i == 0)
                     insertData = "(" + requestId + ", '" + names[i] + "', '" + documents[i] + "')";
                 else
                     insertData = insertData + ", (" + requestId + ", '" + names[i] + "', '" + documents[i] + "')";
@@ -512,13 +525,13 @@ exports.createRequest = function(args, res, next) {
             try {
                 sql(sqlQuery).then(documentResult => {
 
-                    callback( null, requestId, inputParams );
+                    callback(null, requestId, inputParams);
 
                 });
             } catch (documentInsertionError) {
 
                 console.log("DOCUMENT INSERTION ERROR:", JSON.stringify(documentInsertionError, null, 2));
-                callback( documentInsertionError );
+                callback(documentInsertionError);
 
             }
 
@@ -538,13 +551,13 @@ exports.createRequest = function(args, res, next) {
      *
      * @return {object}
      */
-    function _saveContacts( requestId, inputParams, callback ) {
+    function _saveContacts(requestId, inputParams, callback) {
 
         console.log("SETP 4: _saveContacts");
 
-        if ( inputParams.contact_names == '' ) {
+        if (inputParams.contact_names == '') {
 
-            callback( null, requestId, inputParams );
+            callback(null, requestId, inputParams);
 
         } else {
 
@@ -555,11 +568,11 @@ exports.createRequest = function(args, res, next) {
                 , phones = contactPhones.split(',')
                 , n = names.length
                 , insertData = ''
-            ;
+                ;
 
-            for ( var i = 0; i < n; i ++ ) {
+            for (var i = 0; i < n; i++) {
 
-                if ( i == 0 )
+                if (i == 0)
                     insertData = "(" + requestId + ", '" + names[i] + "', '" + phones[i] + "')";
                 else
                     insertData = insertData + ", (" + requestId + ", '" + names[i] + "', '" + phones[i] + "')";
@@ -570,13 +583,13 @@ exports.createRequest = function(args, res, next) {
             try {
                 sql(sqlQuery).then(contactResult => {
 
-                    callback( null, requestId, inputParams );
+                    callback(null, requestId, inputParams);
 
                 });
             } catch (contactInsertionError) {
 
                 console.log("CONTACT INSERTION ERROR:", JSON.stringify(contactInsertionError, null, 2));
-                callback( contactInsertionError );
+                callback(contactInsertionError);
 
             }
 
@@ -594,7 +607,7 @@ exports.createRequest = function(args, res, next) {
      *
      * @return {object}
      */
-    function _saveRequestingUser( requestId, inputParams, callback ) {
+    function _saveRequestingUser(requestId, inputParams, callback) {
 
         console.log("SETP 5: _saveRequestingUser");
 
@@ -606,24 +619,24 @@ exports.createRequest = function(args, res, next) {
                     userId: inputParams.user_id
                 }).then(userInsertionResult => {
 
-                callback( null, true );
+                    callback(null, true);
 
-            });
+                });
         } catch (userInsertionError) {
 
             console.log("USER INSERTION ERROR:", JSON.stringify(userInsertionError, null, 2));
-            callback( userInsertionError );
+            callback(userInsertionError);
 
         }
 
     } //end _saveRequestingUser
 
-    function _matchWithFillingPurpose( requestId, inputParams, callback ) {
+    function _matchWithFillingPurpose(requestId, inputParams, callback) {
 
         console.log("SETP 6: _matchWithFillingPurpose");
 
-        let matchableRequestType = ( inputParams.request_type == 'Disposal' ) ? 2 : 1
-            , matchableFillingPurpose = ( inputParams.filling_purpose == 'Permanent' ) ? 1 : 2;
+        let matchableRequestType = (inputParams.request_type == 'Disposal') ? 2 : 1
+            , matchableFillingPurpose = (inputParams.filling_purpose == 'Permanent') ? 1 : 2;
         //SELECT id, schedule_start_date, schedule_end_date, IIF(filling_purpose = 2, 1, 0.5) AS filling_purpose_score FROM requests WHERE request_type=1
         /*
           DECLARE @FromDate datetime = '2021-09-12';
@@ -646,35 +659,35 @@ exports.createRequest = function(args, res, next) {
 
     } //end _matchWithFillingPurpose
 
-    function _matchWithScheduleOverlap( requestId, inputParams, matches, callback ) {
+    function _matchWithScheduleOverlap(requestId, inputParams, matches, callback) {
 
         console.log("SETP 7: _matchWithScheduleOverlap");
 
         let ownStartDate = inputParams.schedule_start_date
-            , ownEndDate  =   inputParams.schedule_end_date
-            , ownPeriodInDays   = ( new Date(ownEndDate) - new Date(ownStartDate) ) / (1000 * 60 * 60 * 24);
+            , ownEndDate = inputParams.schedule_end_date
+            , ownPeriodInDays = (new Date(ownEndDate) - new Date(ownStartDate)) / (1000 * 60 * 60 * 24);
 
     } //end _matchWithScheduleOverlap
 
-    function _matchWithMaterialTypeAndQuality( requestId, inputParams, matches, callback ) {
+    function _matchWithMaterialTypeAndQuality(requestId, inputParams, matches, callback) {
 
         console.log("SETP 8: _matchWithMaterialTypeAndQuality");
 
     } //end _matchWithMaterialTypeAndQuality
 
-    function _matchWithMaterialVolume( requestId, inputParams, matches, callback ) {
+    function _matchWithMaterialVolume(requestId, inputParams, matches, callback) {
 
         console.log("SETP 9: _matchWithMaterialVolume");
 
     } //end _matchWithMaterialVolume
 
-    function _matchWithLocation( requestId, inputParams, matches, callback ) {
+    function _matchWithLocation(requestId, inputParams, matches, callback) {
 
         console.log("SETP 9: _matchWithLocation");
 
     } //end _matchWithLocation
 
-    function _saveMatches( requestId, inputParams, matches, callback ) {
+    function _saveMatches(requestId, inputParams, matches, callback) {
 
         console.log("SETP 10: _saveMatches");
 
